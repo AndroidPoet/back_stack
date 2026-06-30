@@ -971,6 +971,64 @@ void main() {
       expect(find.text('inbox'), findsNothing);
     });
   });
+
+  // Regression: a nested NavDisplay (here under NavListDetail's single-pane
+  // fallback) must drive its own HeroController, or shared-element transitions
+  // silently don't animate — the bug that made the Pokédex sprite jump instead
+  // of fly. We prove the flight by catching the shared widget *mid-tween* at a
+  // size strictly between its source and destination rest sizes; a page-slide
+  // transition never resizes a child, so an in-between size can only come from a
+  // running Hero flight.
+  group('Hero — shared element flies across a nested NavDisplay', () {
+    const boxKey = ValueKey('shared-box');
+
+    Widget app(NavStack<NavKey> stack) => MaterialApp(
+      home: NavListDetail<NavKey>(
+        stack: stack,
+        isDetail: (key) => key is Message,
+        // Source: 40×40. Destination: 200×200. Same Hero tag → it flies.
+        // Centered so the route's tight constraints don't stretch the box.
+        list: (context, key) => const Center(
+          child: Hero(
+            tag: 'hero',
+            child: SizedBox(key: boxKey, width: 40, height: 40),
+          ),
+        ),
+        detail: (context, key) => const Center(
+          child: Hero(
+            tag: 'hero',
+            child: SizedBox(key: boxKey, width: 200, height: 200),
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('the sprite tweens instead of snapping', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(420, 800)); // single-pane
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final stack = NavStack<NavKey>.of(const Inbox());
+      addTearDown(stack.dispose);
+
+      await tester.pumpWidget(app(stack));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byKey(boxKey)).width, 40, reason: 'at rest');
+
+      // Push the detail and sample the transition mid-flight.
+      stack.push(const Message(1));
+      await tester.pump(); // kick off the route transition + Hero flight
+      await tester.pump(const Duration(milliseconds: 150)); // mid-tween
+
+      final midWidth = tester.getSize(find.byKey(boxKey)).width;
+      expect(
+        midWidth,
+        allOf(greaterThan(40.0), lessThan(200.0)),
+        reason: 'a running Hero flight is between source and destination size',
+      );
+
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byKey(boxKey)).width, 200, reason: 'landed');
+    });
+  });
 }
 
 /// Per-key codec for the restoration test.

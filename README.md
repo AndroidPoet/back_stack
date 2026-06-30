@@ -1,10 +1,16 @@
 # back_stack
 
-**You own the back stack.**
+<p align="center"><strong>You own the back stack.</strong> Navigation is a <code>List</code> you push and pop — type-safe, observable, no route graph.</p>
 
-Navigation is a `List` you own. **Push** adds, **pop** removes, the UI follows.
-No `go` vs `push`. No route graph. No `RouterDelegate` ceremony. Your
-destinations are plain Dart types — checked by the compiler.
+<p align="center">
+  <a href="https://pub.dev/packages/back_stack"><img src="https://img.shields.io/pub/v/back_stack.svg" alt="pub package"></a>
+  <a href="https://github.com/AndroidPoet/back_stack/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license"></a>
+  <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-43%20passing-brightgreen.svg" alt="tests"></a>
+</p>
+
+<p align="center"><img src="doc/demo.gif" width="260" alt="back_stack demo"></p>
+
+**Push** adds, **pop** removes, the UI follows. No `go` vs `push`. No route graph. No `RouterDelegate` ceremony. Destinations are plain Dart types, checked by the compiler.
 
 ```dart
 // 1. Destinations are typed objects. Arguments are real, checked fields.
@@ -29,46 +35,53 @@ stack.push(const Product(42));    // add
 stack.pop();                      // remove
 stack.replaceAll([const Home()]); // reset the flow (e.g. after login)
 stack.popUntil((k) => k is Home); // unwind
-stack.edit((keys) => keys.removeWhere(...)); // it's just a List
 ```
 
-## Reach it from `context`
+System back, the Android predictive-back gesture, and the hardware back button all flow into the list automatically — you never wire that up.
 
-`NavDisplay` provides the stack to everything below it, so screens navigate the
-way Flutter devs expect (`Navigator.of`, `GoRouter.of`) — no passing `stack`
-down by hand:
+## Install
+
+```yaml
+dependencies:
+  back_stack: ^0.1.0
+```
+
+## Reach the stack from anywhere
+
+`NavDisplay` provides the stack to every screen below it — no passing it down by hand:
 
 ```dart
 onTap: () => BackStack.of(context).push(const Product(42)),
 ```
 
-`BackStack.of(context)` doesn't subscribe by default (right for event handlers);
-pass `listen: true` for a widget that should rebuild when the stack changes.
+It doesn't subscribe by default (right for event handlers); pass `listen: true` to rebuild on change.
 
 ## Why
 
-Flutter's navigation pain is well documented. `back_stack` answers each pain
-with the same idea — the list is the single source of truth:
-
 | Common pain (go_router / Navigator 2.0) | back_stack |
 | --- | --- |
-| `go` vs `push` confusion; behaves differently on web vs mobile | **One operation: mutate the list.** No split. |
-| `extra` is `Object?` — not type-safe; objects break deep links | **Destinations are typed objects.** Arguments are compiler-checked fields. |
-| `extra` JSON serialization causing multi-second nav delays | Plain typed stack; you control serialization. |
-| Back stack is a black box you can't observe | **`stack.keys` is plain, observable data** — inspect, test, time-travel. |
-| Redirect loops (`/login → /login → …`) | **`redirect` is a pure function** applied once over the proposed stack. Loop-proof. |
-| 50-line route tables disconnected from screens | One `switch` next to your screens. |
+| `go` vs `push` confusion; differs web vs mobile | **One operation: mutate the list.** |
+| `extra` is `Object?` — not type-safe | **Typed destinations**, compiler-checked args. |
+| Back stack is a black box | **`stack.keys` is plain, observable data.** |
+| Redirect loops (`/login → /login → …`) | **`redirect` is a pure function**, applied once. Loop-proof. |
+| 50-line route tables away from screens | One `switch` next to your screens. |
 
-System back, the Android predictive-back gesture, and the hardware back button
-all flow back into the list automatically — you never wire that up.
+## Features
 
-## Web URLs, deep links & restoration — one codec
+- **Own the stack** — `push` / `pop` / `replaceAll` / `popUntil` / `edit`. It's just a `List`.
+- **Results** — `await stack.pushForResult<Color>(picker)`; complete it with `pop(value)`. Never hangs.
+- **Web & deep links** — one `NavStackCodec` (`Uri ⇄ List`) gives URL sync, browser back/forward, and *you* decide what a link materializes.
+- **Auth gating** — `redirect` (pure transform) and `guard` (veto), applied once per change. Loop-proof.
+- **Adaptive layout** — `NavListDetail` turns one stack into list-detail / panes on wide screens, a stack on phones.
+- **Per-tab history** — `MultiNavStack` gives each bottom-nav tab its own persistent back stack.
+- **Shared elements** — `Hero` transitions just work, including inside nested displays.
+- **Custom transitions** — `TransitionPage` (fade / slideUp / scale), `DialogPage`, `SheetPage`.
+- **Restoration** — `RestorableBackStack` survives process death without a URL.
+- **Leak-safe** — leaving the stack disposes the route; the whole suite runs under `leak_tracker`.
 
-Everything URL-shaped is one small class: translate the stack ⇄ a `Uri`. The
-stack stays the source of truth; the URL is just a projection of it. This gives
-web URL sync, deep links, browser back/forward, OS back, and state restoration
-together — and *you* decide what stack a deep link materializes (so a link can
-layer on top of Home instead of nuking the stack).
+## Web URLs & deep links
+
+One small class translates the stack ⇄ a `Uri`; the stack stays the source of truth.
 
 ```dart
 class ShopCodec extends NavStackCodec {
@@ -89,28 +102,18 @@ class ShopCodec extends NavStackCodec {
   }
 }
 
-final delegate = NavStackRouterDelegate(
-  stack: NavStack.of(const Home()),
-  codec: ShopCodec(),
-  builder: (context, key) => /* your screen */,
-);
-
 MaterialApp.router(
-  routerDelegate: delegate,
+  routerDelegate: NavStackRouterDelegate(
+    stack: NavStack.of(const Home()),
+    codec: ShopCodec(),
+    builder: (context, key) => /* your screen */,
+  ),
   routeInformationParser: const NavStackRouteInformationParser(),
   restorationScopeId: 'app', // survive process death
 );
 ```
 
-Under the Router the initial URL seeds the stack (that's what URL-driven means),
-so make `decode(Uri(path: '/'))` return your `NavStack`'s initial destinations.
-
-> **Tip:** give destinations that ride the URL value equality so a re-decode
-> reuses the live screen instead of rebuilding it — mix in `EquatableNavKey` and
-> list the identifying fields (`List<Object?> get props => [id];`), or use
-> `freezed`/`equatable`.
-
-## Auth gating without redirect loops
+## Auth gating, without loops
 
 ```dart
 stack.redirect = (proposed) {
@@ -119,39 +122,17 @@ stack.redirect = (proposed) {
 };
 ```
 
-A pure function applied **once** per change — it can't ping-pong the way a
-URL-redirect engine does. (Use `stack.guard` instead when you only want to
-*block* a change, not reroute it.)
+A pure function applied **once** per change — it can't ping-pong like a URL-redirect engine.
 
-## Awaiting a result
-
-```dart
-final picked = await stack.pushForResult<Color>(const ColorPicker());
-// on the picker: stack.pop(Colors.indigo);
-```
-
-The future completes with the popped value — or `null` if the screen leaves any
-other way (back, `replaceAll`, the stack being disposed). It never hangs.
-
-## Status — all shipped, leak-tracked
-
-Owned stack, rendering, **type-safe result passing**, and the **Router
-integration** (URL sync, deep links, browser/OS back, restoration) — done, 25
-tests green under `leak_tracker` plus `BackStack.of(context)`. See [doc/PHILOSOPHY.md](doc/PHILOSOPHY.md) for
-how each Flutter leak/caveat is handled.
-
-Still ahead: a `Map<Tab, NavStack>` multi-stack helper for bottom-nav with
-per-tab history.
-
-## Run the example
+## Example
 
 ```bash
-cd example && flutter run
+cd example && flutter run               # the shop demo
+cd example && flutter run -t lib/pokedex.dart   # the Pokédex above
 ```
 
-A tiny shop: login resets the flow, typed product args, `popUntil`, and a live
-inspector that shows the back stack as data as you navigate:
+See [`doc/PHILOSOPHY.md`](doc/PHILOSOPHY.md) for how each Flutter navigation leak and caveat is handled.
 
-```
-back stack: Catalog › Product › Cart
-```
+## License
+
+[MIT](LICENSE)

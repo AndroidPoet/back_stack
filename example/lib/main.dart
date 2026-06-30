@@ -138,6 +138,41 @@ class LoginScreen extends StatelessWidget {
   }
 }
 
+// A stable colour + glyph per product, so the shared element has something
+// recognisable to fly. Just demo data — nothing back_stack-specific.
+({Color color, IconData icon}) _badge(String name) => switch (name) {
+  'Coffee' => (color: const Color(0xFF8D6E63), icon: Icons.coffee),
+  'Notebook' => (color: const Color(0xFF26A69A), icon: Icons.menu_book),
+  _ => (color: const Color(0xFF5C6BC0), icon: Icons.headphones),
+};
+
+/// The shared element. The *same* `Hero` tag in the catalog tile and on the
+/// product screen is all Flutter needs to fly it between the two routes.
+/// Because `NavDisplay` renders through the real Pages API on a `Navigator`,
+/// `Hero` works with zero back_stack support — exactly like Navigator 1.0.
+class ProductBadge extends StatelessWidget {
+  const ProductBadge({super.key, required this.name, this.size = 40});
+  final String name;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = _badge(name);
+    return Hero(
+      tag: 'product-$name',
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: badge.color,
+          borderRadius: BorderRadius.circular(size / 4),
+        ),
+        child: Icon(badge.icon, color: Colors.white, size: size * 0.55),
+      ),
+    );
+  }
+}
+
 class CatalogScreen extends StatelessWidget {
   const CatalogScreen({super.key});
 
@@ -159,6 +194,7 @@ class CatalogScreen extends StatelessWidget {
         children: [
           for (final (name, price) in _items)
             ListTile(
+              leading: ProductBadge(name: name),
               title: Text(name),
               trailing: Text('\$$price'),
               // Push a typed destination. `name`/`price` are checked args.
@@ -186,6 +222,9 @@ class ProductScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Same Hero tag as the catalog tile → the badge flies in.
+            ProductBadge(name: name, size: 120),
+            const SizedBox(height: 24),
             Text('\$$price', style: Theme.of(context).textTheme.displaySmall),
             const SizedBox(height: 24),
             FilledButton(

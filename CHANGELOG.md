@@ -1,3 +1,11 @@
+## 0.1.0
+
+- Fix: `Hero` (shared-element) transitions now animate inside a nested
+  `NavDisplay` — e.g. under `NavListDetail` or `MaterialApp(home:)`. Each display
+  drives its own `HeroController` via a `HeroControllerScope`, so a sprite
+  *flies* between screens instead of snapping. Previously only the root/Router
+  display inherited one. Regression-tested.
+
 ## 0.0.1
 
 - Adaptive layout: `NavListDetail` (one stack → two-pane on wide, animated stack

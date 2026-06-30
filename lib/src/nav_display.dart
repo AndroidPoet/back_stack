@@ -94,6 +94,28 @@ class _NavDisplayState<K extends NavKey> extends State<NavDisplay<K>> {
   /// rebuilds without a diff algorithm: the stable id already is the diff.
   final Map<int, Page<dynamic>> _pages = {};
 
+  /// This [Navigator]'s own [HeroController], handed to it via a
+  /// [HeroControllerScope] below. `MaterialApp` creates one material
+  /// HeroController, but a single controller can only drive one Navigator — the
+  /// root one claims it, so a *nested* `NavDisplay` (e.g. inside `NavListDetail`
+  /// or under `MaterialApp(home:)`) is left without one, and a `Hero` flight
+  /// (shared-element transition) between two of our pages silently doesn't
+  /// animate. Giving this Navigator its own controller via a scope fixes that
+  /// and, because the scope shadows any ancestor one, also keeps the root/Router
+  /// case to exactly one controller (no double flights). Kept for the life of
+  /// the State — a HeroController is stateful, so rebuilding it each frame would
+  /// drop in-flight animations. Uses the same arc tween Material uses.
+  late final HeroController _heroController = HeroController(
+    createRectTween: (begin, end) =>
+        MaterialRectArcTween(begin: begin, end: end),
+  );
+
+  @override
+  void dispose() {
+    _heroController.dispose();
+    super.dispose();
+  }
+
   @override
   void didUpdateWidget(NavDisplay<K> oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -118,21 +140,24 @@ class _NavDisplayState<K extends NavKey> extends State<NavDisplay<K>> {
           final live = {for (final e in entries) e.id};
           _pages.removeWhere((id, _) => !live.contains(id));
 
-          final navigator = Navigator(
-            key: widget.navigatorKey,
-            observers: widget.observers,
-            pages: [
-              for (final entry in entries)
-                _pages[entry.id] ??= _pageFor(
-                  context,
-                  entry.key,
-                  ValueKey(entry.id),
-                ),
-            ],
-            onDidRemovePage: (page) {
-              final key = page.key;
-              if (key is ValueKey<int>) widget.stack.syncRemoved(key.value);
-            },
+          final navigator = HeroControllerScope(
+            controller: _heroController,
+            child: Navigator(
+              key: widget.navigatorKey,
+              observers: widget.observers,
+              pages: [
+                for (final entry in entries)
+                  _pages[entry.id] ??= _pageFor(
+                    context,
+                    entry.key,
+                    ValueKey(entry.id),
+                  ),
+              ],
+              onDidRemovePage: (page) {
+                final key = page.key;
+                if (key is ValueKey<int>) widget.stack.syncRemoved(key.value);
+              },
+            ),
           );
           if (!widget.nested) return navigator;
           return PopScope(
