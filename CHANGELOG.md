@@ -1,3 +1,8 @@
+## 0.1.1
+
+- Docs: the demo GIF now uses an absolute URL so it renders on the pub.dev
+  package page (a relative path inside a raw `<img>` tag wasn't rewritten).
+
 ## 0.1.0
 
 - Fix: `Hero` (shared-element) transitions now animate inside a nested
