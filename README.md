@@ -8,7 +8,7 @@
   <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-43%20passing-brightgreen.svg" alt="tests"></a>
 </p>
 
-<p align="center"><img src="doc/demo.gif" width="260" alt="back_stack demo"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/AndroidPoet/back_stack/main/doc/demo.gif" width="260" alt="back_stack demo"></p>
 
 **Push** adds, **pop** removes, the UI follows. No `go` vs `push`. No route graph. No `RouterDelegate` ceremony. Destinations are plain Dart types, checked by the compiler.
 
