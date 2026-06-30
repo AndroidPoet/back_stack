@@ -1,0 +1,149 @@
+import 'package:back_stack/src/nav_display.dart';
+import 'package:back_stack/src/nav_key.dart';
+import 'package:back_stack/src/nav_stack.dart';
+import 'package:flutter/widgets.dart';
+
+/// Owns one [NavStack] per tab — the "you own the back stack" answer to a bottom
+/// navigation bar with **persistent per-tab history** (go_router's
+/// `StatefulShellRoute`).
+///
+/// Each tab keeps its own stack alive while you're on another tab; switching
+/// back lands you exactly where you left. Pair it with [MultiNavDisplay].
+///
+/// Takes ownership of the tab stacks: [dispose] disposes them all.
+///
+/// ```dart
+/// final tabs = MultiNavStack<AppKey>([
+///   NavStack.of(const Feed()),
+///   NavStack.of(const Search()),
+///   NavStack.of(const Profile()),
+/// ]);
+/// // switch tab: tabs.select(1);   pop within tab / fall back: tabs.handleBack();
+/// ```
+class MultiNavStack<K extends NavKey> extends ChangeNotifier {
+  /// Creates a host over [tabs], starting on [initialIndex].
+  MultiNavStack(List<NavStack<K>> tabs, {int initialIndex = 0})
+    : assert(tabs.isNotEmpty, 'MultiNavStack needs at least one tab'),
+      assert(
+        initialIndex >= 0 && initialIndex < tabs.length,
+        'initialIndex out of range',
+      ),
+      _tabs = List.of(tabs),
+      _index = initialIndex {
+    for (final tab in _tabs) {
+      tab.addListener(notifyListeners);
+    }
+  }
+
+  final List<NavStack<K>> _tabs;
+  int _index;
+
+  /// The per-tab stacks.
+  List<NavStack<K>> get tabs => List.unmodifiable(_tabs);
+
+  /// The active tab index.
+  int get index => _index;
+
+  /// The active tab's stack.
+  NavStack<K> get active => _tabs[_index];
+
+  /// Number of tabs.
+  int get length => _tabs.length;
+
+  /// Whether [handleBack] would do anything (active tab can pop, or we're not
+  /// on the first tab). Drives a host `PopScope`.
+  bool get canHandleBack => active.canPop || _index != 0;
+
+  /// Switch to tab [i]. Re-selecting the active tab pops it to its root when
+  /// [popToRootOnReselect] is true — the familiar bottom-nav gesture.
+  void select(int i, {bool popToRootOnReselect = true}) {
+    assert(i >= 0 && i < _tabs.length, 'tab index out of range');
+    if (i == _index) {
+      if (popToRootOnReselect) _popToRoot(active);
+      return;
+    }
+    _index = i;
+    notifyListeners();
+  }
+
+  /// Handle a back request: pop within the active tab; else fall back to the
+  /// first tab; else return false (nothing to do — let the app close). This is
+  /// what a host `PopScope` calls.
+  bool handleBack() {
+    if (active.canPop) return active.pop();
+    if (_index != 0) {
+      _index = 0;
+      notifyListeners();
+      return true;
+    }
+    return false;
+  }
+
+  void _popToRoot(NavStack<K> stack) {
+    while (stack.pop()) {}
+  }
+
+  @override
+  void dispose() {
+    for (final tab in _tabs) {
+      tab
+        ..removeListener(notifyListeners)
+        ..dispose();
+    }
+    super.dispose();
+  }
+}
+
+/// Renders a [MultiNavStack]: every tab's [NavDisplay] stays mounted (so its
+/// state survives tab switches) via an [IndexedStack], and the system back
+/// gesture pops the active tab — or falls back to the first tab — through a
+/// `PopScope`.
+///
+/// You supply the bottom bar yourself; drive it from `host.index` /
+/// `host.select(i)`.
+class MultiNavDisplay<K extends NavKey> extends StatelessWidget {
+  /// Creates a display for [host], rendering each destination with [builder].
+  const MultiNavDisplay({
+    required this.host,
+    required this.builder,
+    this.pageBuilder,
+    super.key,
+  });
+
+  /// The per-tab stacks to render.
+  final MultiNavStack<K> host;
+
+  /// Maps a destination to its screen. See [NavDisplay.builder].
+  final NavWidgetBuilder<K> builder;
+
+  /// Optional custom page/transition. See [NavDisplay.pageBuilder].
+  final NavPageBuilder<K>? pageBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: host,
+      builder: (context, _) {
+        return PopScope(
+          // We only let the route system pop (close the app / leave the host)
+          // when there's nothing to handle internally.
+          canPop: !host.canHandleBack,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) host.handleBack();
+          },
+          child: IndexedStack(
+            index: host.index,
+            children: [
+              for (final tab in host.tabs)
+                NavDisplay<K>(
+                  stack: tab,
+                  builder: builder,
+                  pageBuilder: pageBuilder,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}

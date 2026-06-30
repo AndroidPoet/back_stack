@@ -1,0 +1,16 @@
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    # dartdoc resolves [Type] references across the whole package; the analyzer
+    # lint is stricter than dartdoc and false-flags valid cross-file links.
+    comment_references: false
+    # 80 columns is enforced for code by the formatter; we don't also wrap prose
+    # in dartdoc comments to it.
+    lines_longer_than_80_chars: false
