@@ -8,8 +8,10 @@ cd example
 
 flutter run -t lib/multi_file/main.dart  # simplest: destinations split across files, no switch
 flutter run                          # shop demo (lib/main.dart)
-flutter run -t lib/pokedex.dart      # Pokédex — deep links, results, transitions
+flutter run -t lib/pokedex.dart      # Pokédex — NavListDetail + Hero on a real API
 flutter run -t lib/showcase.dart     # NavListDetail — one stack, two adaptive layouts
+flutter run -t lib/tabs.dart         # MultiNavStack — bottom nav with per-tab history
+flutter run -t lib/results.dart      # pushForResult — await a value from a pushed screen
 flutter run -t lib/entries.dart      # NavEntries (modular builder) + NavEntryDecorator
 flutter run -t lib/modular_demo.dart # fuller demo: feature-module entries + a cross-cutting decorator
 ```
@@ -20,10 +22,17 @@ flutter run -t lib/modular_demo.dart # fuller demo: feature-module entries + a c
   one `NavEntries`). No `switch`, no central list — add a screen by adding a file.
 - **main.dart** — the core model end to end: typed destinations, `push`/`pop`,
   a live inspector proving the stack is plain observable data.
-- **pokedex.dart** — web URLs & deep links via a `NavStackCodec`, `pushForResult`,
-  and custom transitions.
+- **pokedex.dart** — a real Pokédex on PokeAPI. Two typed destinations rendered by
+  `NavListDetail`, so the *same* stack is a grid + detail on a wide window and a grid
+  → pushed detail (with a `Hero` sprite flight) on a phone — no second navigation model.
 - **showcase.dart** — `NavListDetail`: one stack that renders as a two-pane
   list-detail on a wide window and a push/pop stack on a phone.
+- **tabs.dart** — `MultiNavStack` + `MultiNavDisplay`: a bottom nav bar where each
+  tab keeps its own persistent back stack. Push deep in one tab, switch away and
+  back — the history is intact. A deep screen jumps tabs via `MultiBackStack.of`.
+- **results.dart** — `pushForResult`: open a color picker and `await` the value it
+  pops back, or `null` if it's dismissed. The classic "return a result" flow with
+  no result channel to wire up.
 - **entries.dart** — register destinations as a map with `NavEntries` instead of
   one big `switch`, and scope setup/teardown to a destination with
   `NavEntryDecorator` (`decorate` + `onRemoved`).

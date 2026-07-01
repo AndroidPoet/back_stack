@@ -70,7 +70,14 @@ class MultiNavStack<K extends NavKey> extends ChangeNotifier {
   /// first tab; else return false (nothing to do — let the app close). This is
   /// what a host `PopScope` calls.
   bool handleBack() {
-    if (active.canPop) return active.pop();
+    // The active tab has history to unwind: consume the back gesture even if a
+    // `popGuard` vetoes this particular pop. Returning `active.pop()` directly
+    // would surface `false` (a vetoed pop) to the host `PopScope`, which reads
+    // that as "nothing handled it" and closes the app — the opposite of intent.
+    if (active.canPop) {
+      active.pop();
+      return true;
+    }
     if (_index != 0) {
       _index = 0;
       notifyListeners();
@@ -139,7 +146,8 @@ class MultiNavDisplay<K extends NavKey> extends StatefulWidget {
   State<MultiNavDisplay<K>> createState() => _MultiNavDisplayState<K>();
 }
 
-class _MultiNavDisplayState<K extends NavKey> extends State<MultiNavDisplay<K>> {
+class _MultiNavDisplayState<K extends NavKey>
+    extends State<MultiNavDisplay<K>> {
   /// Tabs that have been shown at least once. Under [MultiNavDisplay.lazy], only
   /// these are built; the rest are cheap placeholders until first selected.
   final Set<int> _visited = {};

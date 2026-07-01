@@ -1,3 +1,35 @@
+## 0.2.7
+
+A correctness + documentation pass. No API changes — every fix is behavior that
+matches what the docs already promised.
+
+- **Fix — `NavListDetail` no longer crashes when a lone detail is on top on a
+  wide screen.** Previously, if the only (or first) entry was itself a *detail*
+  type, it was mounted in both panes under the same per-entry `GlobalKey` and
+  threw a duplicate-key error. It now shows as the list pane with an empty detail
+  pane. Regression-tested.
+- **Fix — `NavEntryDecorator.onRemoved` is now symmetric across the breakpoint in
+  `NavListDetail`.** `onRemoved` fires only for entries that were actually rendered
+  (as a wide pane or a narrow page), so a wide-only middle entry that was never
+  shown no longer gets a spurious `onRemoved` with no matching `decorate`.
+- **Fix — `MultiNavStack.handleBack` consumes back even when a `popGuard` vetoes
+  the pop.** With history in the active tab, back is now treated as handled (so the
+  app stays open) instead of surfacing the vetoed pop's `false` to the host
+  `PopScope` — which would have closed the app.
+- **Hardening — an empty stack is refused rather than crashing in release.** A
+  `redirect`/`replaceAll` that resolves to no destinations is caught by an assert
+  in debug and, in release, declined (the current stack stays) instead of leaving
+  the `Navigator` with an empty pages list.
+- **Examples:** adds `example/lib/tabs.dart` (`MultiNavStack` bottom nav with
+  per-tab history) and `example/lib/results.dart` (`pushForResult` — await a value
+  from a pushed screen), filling the two biggest example gaps.
+- **Docs:** README gains a table of contents and runnable snippets for results,
+  per-tab nav, reusing an open screen (`pushOrMoveToTop`/`moveToTop`) and the live
+  `BackStackInspector`; corrects the `BackStack.of<AppKey>` type argument, the
+  exhaustiveness claim (now that the hero leads with `NavEntries`), and the example
+  README's Pokédex description. `pushForResult`'s `Object?`-cast caveat and the
+  `NavEntry.id` / `entries` docs are clarified.
+
 ## 0.2.6
 
 Convenience additions inspired by other routers — all built as plain list ops /

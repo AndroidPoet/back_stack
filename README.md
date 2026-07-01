@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://pub.dev/packages/back_stack"><img src="https://img.shields.io/pub/v/back_stack.svg" alt="pub package"></a>
   <a href="https://github.com/AndroidPoet/back_stack/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license"></a>
-  <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-65%20passing-brightgreen.svg" alt="tests"></a>
+  <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-75%20passing-brightgreen.svg" alt="tests"></a>
 </p>
 
 <p align="center"><img src="https://raw.githubusercontent.com/AndroidPoet/back_stack/main/doc/demo.gif" width="260" alt="back_stack demo"></p>
@@ -43,18 +43,32 @@ System back, the Android predictive-back gesture, and the hardware back button a
 
 ```yaml
 dependencies:
-  back_stack: ^0.2.6
+  back_stack: ^0.2.7
 ```
+
+## Contents
+
+- [Reach the stack from anywhere](#reach-the-stack-from-anywhere)
+- [Why](#why) · [Features](#features)
+- [Deep links — one function](#deep-links--one-function)
+- [Web URLs & the codec (full control)](#web-urls--the-codec-full-control)
+- [Results — await a pushed screen](#results--await-a-pushed-screen)
+- [Auth gating, without loops](#auth-gating-without-loops)
+- [Bottom nav with per-tab history](#bottom-nav-with-per-tab-history--on-the-web-too)
+- [Modular destinations & scoped cleanup](#modular-destinations--scoped-cleanup)
+- [Reuse an open screen](#reuse-an-open-screen)
+- [Debug the stack live](#debug-the-stack-live)
+- [Known limitations](#known-limitations) · [Examples](#example)
 
 ## Reach the stack from anywhere
 
 `NavDisplay` provides the stack to every screen below it — no passing it down by hand:
 
 ```dart
-onTap: () => BackStack.of(context).push(const Product(42)),
+onTap: () => BackStack.of<AppKey>(context).push(const Product(42)),
 ```
 
-It doesn't subscribe by default (right for event handlers); pass `listen: true` to rebuild on change.
+Pass the key type — `BackStack.of<AppKey>` — so the lookup finds *your* stack. It doesn't subscribe by default (right for event handlers); pass `listen: true` to rebuild on change.
 
 ## Why
 
@@ -64,12 +78,12 @@ It doesn't subscribe by default (right for event handlers); pass `listen: true` 
 | `extra` is `Object?` — not type-safe | **Typed destinations**, compiler-checked args. |
 | Back stack is a black box | **`stack.keys` is plain, observable data.** |
 | Redirect loops (`/login → /login → …`) | **`redirect` is a pure function**, applied once. Loop-proof. |
-| 50-line route tables away from screens | One `switch` next to your screens. |
+| 50-line route tables away from screens | A `NavEntries` map (or one `switch`) next to your screens. |
 
 ## Features
 
-- **Own the stack** — `push` / `pop` / `replaceAll` / `popUntil` / `edit`. It's just a `List`.
-- **One `switch`, or a modular map** — the exhaustive `switch` is the default; `NavEntries` (`..on<Home>(...)`) registers destinations across feature files when one `switch` gets big.
+- **Own the stack** — `push` / `pop` / `replaceTop` / `replaceAll` / `popUntil` / `edit`. It's just a `List`.
+- **A modular map, or one `switch`** — `NavEntries` (`..on<Home>(...)`) registers destinations across feature files; prefer an exhaustive `switch` when you want the compiler to flag a destination you forgot.
 - **Cross-cutting decorators** — `NavEntryDecorator` wraps every screen (DI scope, providers, tracing) and calls back when an entry leaves the stack, so you can tear down a Bloc/controller scoped to a destination.
 - **Results** — `await stack.pushForResult<Color>(picker)`; complete it with `pop(value)`. Never hangs.
 - **Deep links, one function** — `BackStackApp(onLink: (uri) => [...])` maps a URL straight onto the stack. No `MaterialApp.router` boilerplate; *you* decide what a link materializes.
@@ -144,9 +158,26 @@ Prefer a class? Extend `NavStackCodec` and override `encode`/`decode` — same t
 
 ### Error handling — the one place a link can go wrong
 
-There is no `errorBuilder` and no "route not found" — destinations are typed and the `builder` switch is exhaustive, so **in-app navigation can't reach an unknown screen; that error class is gone at compile time.**
+There is no `errorBuilder` and no "route not found" — destinations are typed, so **in-app navigation can't reach an unknown screen.** With an exhaustive `switch` builder the compiler even names the destination you forgot to handle; with a `NavEntries` map the match is by runtime type, so an unregistered destination throws a clear `StateError` naming the type rather than rendering a blank route. Either way there's no untyped "route string" to mistype.
 
 The only untyped input is a **deep link** from outside. `decode` there can throw (a junk `int.parse`) or return nothing. back_stack never crashes on it: if `decode` throws or returns empty, it uses `fallbackFor` instead — the `fallback` list above, or override `fallbackFor` to route to a dedicated `NotFound()` screen. So `decode` can parse optimistically without defensive guards.
+
+## Results — await a pushed screen
+
+Open a screen and `await` the value it sends back — no result channel, no callback threading. `pushForResult<T>` completes when that screen leaves the stack:
+
+```dart
+// Caller: open the picker, await the color it returns.
+final color = await BackStack.of<AppKey>(context).pushForResult<Color>(
+  const ColorPicker(),
+);
+if (color != null) setState(() => _swatch = color);
+
+// The picker screen: pop the chosen value back to the awaiter.
+onTap: () => BackStack.of<AppKey>(context).pop(pickedColor),
+```
+
+It completes with the value passed to `pop`, or `null` if the screen leaves any other way (back gesture, `replaceAll`, disposal) — it never hangs. `pop` takes an untyped `Object?`, so make the picker return the same `T` the caller expects. Runnable in `example/lib/results.dart`.
 
 ## Auth gating, without loops
 
@@ -161,7 +192,29 @@ A pure function applied **once** per change — it can't ping-pong like a URL-re
 
 ## Bottom nav with per-tab history — on the web too
 
-`MultiNavStack` keeps one back stack per tab; `MultiNavDisplay` renders them (pass `lazy: true` to build a tab only when first opened). For URL sync, deep links and browser back on a tabbed app, drive it from the Router with `MultiNavStackRouterDelegate` + a `MultiNavStackCodec` (the multi-tab siblings of `NavStackRouterDelegate` / `NavStackCodec`). To survive process death, wrap it in `RestorableMultiNavStack` — every tab's stack and the active tab come back.
+`MultiNavStack` keeps one back stack per tab; `MultiNavDisplay` renders them (pass `lazy: true` to build a tab only when first opened):
+
+```dart
+final host = MultiNavStack<TabKey>([
+  NavStack.of(const Feed()),
+  NavStack.of(const Search()),
+  NavStack.of(const Profile()),
+]);
+
+Scaffold(
+  body: MultiNavDisplay<TabKey>(host: host, builder: screenFor),
+  bottomNavigationBar: ListenableBuilder(
+    listenable: host,
+    builder: (context, _) => NavigationBar(
+      selectedIndex: host.index,
+      onDestinationSelected: host.select, // re-tap the active tab → pop to root
+      destinations: const [/* ... */],
+    ),
+  ),
+);
+```
+
+Each tab keeps its own history across switches; system back pops the active tab, then falls back to the first tab. A deep screen switches tabs with `MultiBackStack.of<TabKey>(context).select(i)`. For URL sync, deep links and browser back on a tabbed app, drive it from the Router with `MultiNavStackRouterDelegate` + a `MultiNavStackCodec` (the multi-tab siblings of `NavStackRouterDelegate` / `NavStackCodec`). To survive process death, wrap it in `RestorableMultiNavStack` — every tab's stack and the active tab come back. Runnable in `example/lib/tabs.dart`.
 
 ## Modular destinations & scoped cleanup
 
@@ -193,6 +246,33 @@ NavDisplay(
 
 `decorate` runs on every build (first decorator is the outermost wrapper); `onRemoved` fires once when the entry is popped, replaced, or the whole display is disposed — the hook `State.dispose` can't give you for a *non-widget* object.
 
+## Reuse an open screen
+
+Sometimes you want to jump *back* to a screen that's already open instead of stacking another copy of it — the `singleTop` / `clearTop` gesture. It's just list surgery:
+
+```dart
+// If a Product is already on the stack, bring it to the top; else push it.
+stack.pushOrMoveToTop(const Product(42));
+
+// Or unconditionally pop back to the first screen matching a test (clearTop).
+stack.moveToTop((k) => k is Home);
+```
+
+`pushOrMoveToTop` matches by `==` by default; pass `isSame:` to define your own "same destination" (e.g. same route, ignoring a query field).
+
+## Debug the stack live
+
+Because the stack is plain observable data, you can watch it without any DevTools plumbing — drop `BackStackInspector` anywhere below the display:
+
+```dart
+Stack(children: [
+  yourApp,
+  const Positioned(left: 8, bottom: 8, child: BackStackInspector<AppKey>()),
+]);
+```
+
+It lists every entry bottom-to-top, marks the current one, and updates on every push/pop. Handy while you're wiring flows; delete the one line to remove it.
+
 ## Known limitations
 
 Honest edges, so nothing surprises you:
@@ -206,10 +286,13 @@ Honest edges, so nothing surprises you:
 ## Example
 
 ```bash
-cd example && flutter run                        # the shop demo
-cd example && flutter run -t lib/pokedex.dart    # the Pokédex above
-cd example && flutter run -t lib/showcase.dart   # NavListDetail, one adaptive stack
-cd example && flutter run -t lib/entries.dart    # NavEntries + NavEntryDecorator
+cd example && flutter run                             # the shop demo
+cd example && flutter run -t lib/multi_file/main.dart # simplest: destinations split across files
+cd example && flutter run -t lib/pokedex.dart         # NavListDetail + Hero on a real API
+cd example && flutter run -t lib/tabs.dart            # MultiNavStack — per-tab history
+cd example && flutter run -t lib/results.dart         # pushForResult — await a pushed screen
+cd example && flutter run -t lib/showcase.dart        # NavListDetail, one adaptive stack
+cd example && flutter run -t lib/entries.dart         # NavEntries + NavEntryDecorator
 ```
 
 See [`doc/PHILOSOPHY.md`](doc/PHILOSOPHY.md) for how each Flutter navigation leak and caveat is handled.

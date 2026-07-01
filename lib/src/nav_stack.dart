@@ -15,7 +15,10 @@ class NavEntry<K extends NavKey> {
   /// The destination you pushed.
   final K key;
 
-  /// Stable identity for this slot on the stack. Internal.
+  /// Stable, unique identity for this slot on the stack — assigned when the
+  /// entry is created and preserved as long as it survives. Two entries with the
+  /// same [key] still have different ids, which is what lets duplicate
+  /// destinations stay independent and keep their own `State`.
   final int id;
 }
 
@@ -119,7 +122,9 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
   /// The destinations, bottom-to-top. Read-only — mutate via the methods below.
   List<K> get keys => [for (final e in _entries) e.key];
 
-  /// The internal entries (key + id), used by [NavDisplay] to build pages.
+  /// The entries (each a [key] paired with its stable [NavEntry.id]),
+  /// bottom-to-top. [NavDisplay] uses these to build one page per entry; reach
+  /// for them when you need an entry's identity, not just its [keys]. Read-only.
   List<NavEntry<K>> get entries => List.unmodifiable(_entries);
 
   /// The screen currently on top.
@@ -148,6 +153,11 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
   /// The future completes with the value passed to [pop], or `null` if the
   /// screen leaves the stack any other way (back gesture, `replaceAll`, the
   /// stack being disposed). It never hangs.
+  ///
+  /// [pop] takes an untyped `Object?`, so the value is cast to `T` when this
+  /// future resolves: `pop(result)` with a result that isn't a `T` throws a
+  /// `CastError` inside the `await` here, not at the `pop` call site. Make the
+  /// popping screen return the same type this `pushForResult<T>` expects.
   Future<T?> pushForResult<T extends Object>(K key) {
     final entry = NavEntry<K>(key, _nextId++);
     final completer = Completer<Object?>();
@@ -294,6 +304,15 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
         'redirect must return at least one destination',
       );
       if (adjusted.isNotEmpty) resolved = _reconcile(adjusted);
+    }
+    // An empty stack has no screen to show and would leave [NavDisplay] with an
+    // empty Pages list (a Navigator assertion). The asserts above catch a bad
+    // `redirect`/`replaceAll` in debug; in release, refuse the change instead of
+    // crashing — the current stack stays as-is. (A no-op `pop()` on the last
+    // entry is handled by its own `canPop` check, so this only trips on misuse.)
+    if (resolved.isEmpty) {
+      _prunePending();
+      return false;
     }
     // A change that never lands — blocked by [guard], or a no-op once [redirect]
     // is applied — can still have stranded a just-pushed [pushForResult] awaiter

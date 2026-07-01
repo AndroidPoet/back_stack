@@ -311,11 +311,17 @@ class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
   GlobalKey _keyFor(int id) =>
       _paneKeys.putIfAbsent(id, () => GlobalKey(debugLabel: 'pane-$id'));
 
-  /// id→key of entries seen, so [NavEntryDecorator.onRemoved] fires once per
-  /// removal regardless of which layout is showing. Only kept when there are
-  /// decorators; handled here (not delegated to the narrow [NavDisplay]) so it
-  /// stays correct across the breakpoint.
+  /// id→key of entries that have actually been **rendered** (as a wide pane or a
+  /// narrow page). [NavEntryDecorator.onRemoved] fires for an id in here once it
+  /// leaves the stack — so a wide-only middle entry that was never shown doesn't
+  /// get a spurious `onRemoved` with no matching `decorate`. Handled here (not
+  /// delegated to the narrow [NavDisplay]) so it stays correct across the
+  /// breakpoint. Only maintained when there are decorators.
   final Map<int, K> _seen = {};
+
+  void _markRendered(int id, K key) {
+    if (widget.decorators.isNotEmpty) _seen[id] = key;
+  }
 
   @override
   void dispose() {
@@ -356,16 +362,18 @@ class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
               final liveIds = {for (final e in entries) e.id};
               // Drop keys for entries that have left the stack.
               _paneKeys.removeWhere((id, _) => !liveIds.contains(id));
-              // Fire onRemoved for departed entries, then refresh the record.
+              // Fire onRemoved for rendered entries (recorded in _seen when a
+              // pane/page built them) that have now left the stack, and drop
+              // them. Entries never rendered were never decorated, so they
+              // correctly get no onRemoved.
               if (widget.decorators.isNotEmpty) {
-                for (final seen in _seen.entries) {
-                  if (!liveIds.contains(seen.key)) _notifyRemoved(seen.value);
-                }
-                _seen
-                  ..clear()
-                  ..addEntries([
-                    for (final e in entries) MapEntry(e.id, e.key),
-                  ]);
+                _seen.removeWhere((id, key) {
+                  if (!liveIds.contains(id)) {
+                    _notifyRemoved(key);
+                    return true;
+                  }
+                  return false;
+                });
               }
 
               return constraints.maxWidth >= widget.breakpoint
@@ -385,7 +393,19 @@ class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
       orElse: () => entries.first,
     );
     final topEntry = entries.last;
-    final detailEntry = widget.isDetail(topEntry.key) ? topEntry : null;
+    // If the only/first entry is itself a detail there's no distinct list entry
+    // to pair it with (listEntry falls back to the same entry). Show it as the
+    // list and leave the detail pane empty, rather than mounting the same
+    // per-entry GlobalKey in both panes — which would throw a duplicate-key error.
+    final detailEntry =
+        widget.isDetail(topEntry.key) && topEntry.id != listEntry.id
+        ? topEntry
+        : null;
+
+    // Record what's actually on screen so onRemoved fires (once) for these — and
+    // only these — when they later leave the stack.
+    _markRendered(listEntry.id, listEntry.key);
+    if (detailEntry != null) _markRendered(detailEntry.id, detailEntry.key);
 
     final detailChild = detailEntry == null
         ? (widget.placeholder?.call(context) ??
@@ -435,25 +455,32 @@ class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
     return NavDisplay<K>(
       stack: stack,
       observers: widget.observers,
-      builder: (context, key) =>
-          widget.isDetail(key) ? widget.detail(context, key) : widget.list(context, key),
+      builder: (context, key) => widget.isDetail(key)
+          ? widget.detail(context, key)
+          : widget.list(context, key),
       // decorators are applied here (not passed to NavDisplay) so onRemoved
       // fires exactly once, tracked by this State across the breakpoint.
       // Wrap each page's screen in the same per-entry GlobalKey the wide layout
       // uses, so crossing the breakpoint reparents rather than rebuilds.
-      pageBuilder: (context, key, pageKey) => MaterialPage<dynamic>(
-        key: pageKey,
-        child: KeyedSubtree(
-          key: _keyFor((pageKey as ValueKey<int>).value),
-          child: _decorate(
-            context,
-            key,
-            widget.isDetail(key)
-                ? widget.detail(context, key)
-                : widget.list(context, key),
+      pageBuilder: (context, key, pageKey) {
+        final id = (pageKey as ValueKey<int>).value;
+        // Same rendered-entry bookkeeping as the wide layout, so onRemoved is
+        // symmetric across the breakpoint.
+        _markRendered(id, key);
+        return MaterialPage<dynamic>(
+          key: pageKey,
+          child: KeyedSubtree(
+            key: _keyFor(id),
+            child: _decorate(
+              context,
+              key,
+              widget.isDetail(key)
+                  ? widget.detail(context, key)
+                  : widget.list(context, key),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
