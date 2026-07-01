@@ -10,6 +10,7 @@ flutter run                          # shop demo (lib/main.dart)
 flutter run -t lib/pokedex.dart      # Pokédex — deep links, results, transitions
 flutter run -t lib/showcase.dart     # NavListDetail — one stack, two adaptive layouts
 flutter run -t lib/entries.dart      # NavEntries (modular builder) + NavEntryDecorator
+flutter run -t lib/modular_demo.dart # fuller demo: feature-module entries + a cross-cutting decorator
 ```
 
 - **main.dart** — the core model end to end: typed destinations, `push`/`pop`,
@@ -21,3 +22,7 @@ flutter run -t lib/entries.dart      # NavEntries (modular builder) + NavEntryDe
 - **entries.dart** — register destinations as a map with `NavEntries` instead of
   one big `switch`, and scope setup/teardown to a destination with
   `NavEntryDecorator` (`decorate` + `onRemoved`).
+- **modular_demo.dart** — the fuller version: three "feature modules" each register
+  their own entries into one shared map, and a single `NavEntryDecorator` wraps
+  every screen with an instrumentation overlay and logs a teardown line each time
+  a destination leaves the stack (`onRemoved`). Covered by a smoke test in `test/`.
