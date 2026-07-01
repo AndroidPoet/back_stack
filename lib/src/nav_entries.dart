@@ -33,6 +33,10 @@ import 'package:flutter/widgets.dart';
 /// modularity matters more than that compile-time guarantee — e.g. a large app
 /// split across feature packages. For a small app, the `switch` builder is
 /// still the safest choice.
+///
+/// Matching is by **exact runtime type**, not subtype: registering `on<Product>`
+/// handles a `Product`, but not a `DiscountedProduct extends Product` (a `switch`
+/// `Product()` pattern would). Register each concrete destination type you push.
 class NavEntries<K extends NavKey> {
   final Map<Type, Widget Function(BuildContext context, K key)> _builders = {};
 

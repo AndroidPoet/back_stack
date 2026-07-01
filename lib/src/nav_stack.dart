@@ -158,13 +158,17 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
 
   /// Remove the top destination, optionally returning [result] to a matching
   /// [pushForResult] awaiter. Returns false (and does nothing) if this is the
-  /// last screen — the stack always keeps at least one entry.
+  /// last screen — the stack always keeps at least one entry, or if the change
+  /// is blocked by [guard]/collapsed by [redirect] so the top never actually
+  /// leaves. The [result] reaches the awaiter only when the pop truly lands.
   bool pop([Object? result]) {
     if (!canPop) return false;
     if (popGuard != null && !popGuard!(current)) return false;
-    _completeResult(_entries.last.id, result);
-    _commit(_entries.sublist(0, _entries.length - 1));
-    return true;
+    return _commit(
+      _entries.sublist(0, _entries.length - 1),
+      poppedId: _entries.last.id,
+      poppedResult: result,
+    );
   }
 
   /// Replace the top destination in place (no back step recorded).
@@ -245,7 +249,12 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
     return NavEntry<K>(key, _nextId++);
   }
 
-  void _commit(List<NavEntry<K>> next) {
+  /// Apply [next] as the new stack, running [redirect] then [guard]. Returns
+  /// whether the change actually landed (false if [guard] vetoed it or it was a
+  /// no-op). When a [pop] drives this, [poppedId]/[poppedResult] carry the
+  /// awaiter result to deliver — but only if that entry genuinely leaves, so a
+  /// vetoed pop never resolves its future while the screen is still up.
+  bool _commit(List<NavEntry<K>> next, {int? poppedId, Object? poppedResult}) {
     var resolved = next;
     // redirect runs once and transforms the proposed stack — loop-proof.
     final redirectFn = redirect;
@@ -263,20 +272,26 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
     // awaiter whose entry isn't on the stack so the future can never hang.
     if (guard != null && !guard!([for (final e in resolved) e.key])) {
       _prunePending();
-      return;
+      return false;
     }
     if (_sameAs(resolved)) {
       _prunePending();
-      return;
+      return false;
     }
     _entries
       ..clear()
       ..addAll(resolved);
-    // Anything that left the stack (a pop, a replaceAll, or a key a redirect
-    // dropped) resolves its awaiter with null — pop() already handed the top an
-    // explicit result before calling here.
+    // Hand the popped screen its explicit result — but only if it truly left
+    // (a redirect could have re-added it). Must run before _prunePending so the
+    // pruner doesn't first resolve it with null.
+    if (poppedId != null && _entries.every((e) => e.id != poppedId)) {
+      _completeResult(poppedId, poppedResult);
+    }
+    // Anything else that left the stack (a replaceAll, or a key a redirect
+    // dropped) resolves its awaiter with null.
     _prunePending();
     notifyListeners();
+    return true;
   }
 
   /// Complete (with null) and drop any [pushForResult] awaiter whose entry is no

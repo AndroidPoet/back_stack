@@ -1,3 +1,17 @@
+## 0.2.3
+
+- **Fix:** a `pop(result)` that is vetoed by `guard` (or collapsed to a no-op by
+  `redirect`) no longer completes the destination's `pushForResult` future or
+  returns `true`. Previously the awaiter received the result while the screen was
+  still on top — now the result is delivered, and `pop` returns `true`, only when
+  the entry actually leaves the stack. (`popGuard` was already safe.)
+- Docs: `NavEntryDecorator.onRemoved` notes that it runs during the display's
+  build (defer any rebuild-triggering work with `addPostFrameCallback`);
+  `NavEntries` documents that it matches by exact runtime type, not subtype.
+- Adds `example/lib/modular_demo.dart` (also on GitHub): three feature modules
+  register their own `NavEntries` into one map, and a single `NavEntryDecorator`
+  wraps every screen and logs teardown on `onRemoved`.
+
 ## 0.2.2
 
 - The main example (`example/lib/main.dart`, the one shown on the package page)

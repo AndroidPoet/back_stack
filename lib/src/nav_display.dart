@@ -63,6 +63,11 @@ class NavEntryDecorator<K extends NavKey> {
   /// Called when the entry for `key` leaves the stack. Clean up anything scoped
   /// to it here. Fires once per removal (and for any entries still present when
   /// the display is disposed).
+  ///
+  /// It runs *during* the display's build, so don't synchronously mutate a
+  /// `Listenable`/`setState` that would rebuild this display from inside it —
+  /// defer that with `WidgetsBinding.instance.addPostFrameCallback`. Disposing a
+  /// controller/scope or firing analytics is fine directly.
   final void Function(K key)? onRemoved;
 }
 
