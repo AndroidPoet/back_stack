@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://pub.dev/packages/back_stack"><img src="https://img.shields.io/pub/v/back_stack.svg" alt="pub package"></a>
   <a href="https://github.com/AndroidPoet/back_stack/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license"></a>
-  <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-76%20passing-brightgreen.svg" alt="tests"></a>
+  <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-83%20passing-brightgreen.svg" alt="tests"></a>
 </p>
 
 <p align="center"><img src="https://raw.githubusercontent.com/AndroidPoet/back_stack/main/doc/demo.gif" width="260" alt="back_stack demo"></p>
@@ -43,7 +43,7 @@ System back, the Android predictive-back gesture, and the hardware back button a
 
 ```yaml
 dependencies:
-  back_stack: ^0.2.8
+  back_stack: ^0.3.0
 ```
 
 ## Contents
@@ -53,12 +53,13 @@ dependencies:
 - [Deep links — one function](#deep-links--one-function)
 - [Web URLs & the codec (full control)](#web-urls--the-codec-full-control)
 - [Results — await a pushed screen](#results--await-a-pushed-screen)
-- [Auth gating, without loops](#auth-gating-without-loops)
+- [Auth gating, without loops](#auth-gating-without-loops) · [Async gating](#async-gating)
 - [Bottom nav with per-tab history](#bottom-nav-with-per-tab-history--on-the-web-too)
 - [Modular destinations & scoped cleanup](#modular-destinations--scoped-cleanup)
 - [Reuse an open screen](#reuse-an-open-screen)
-- [Debug the stack live](#debug-the-stack-live)
+- [Debug the stack live](#debug-the-stack-live) · [Transitions](#transitions)
 - [Known limitations](#known-limitations) · [Examples](#example)
+- **[Migrating from go_router](doc/MIGRATING_FROM_GO_ROUTER.md)**
 
 ## Reach the stack from anywhere
 
@@ -87,13 +88,13 @@ Pass the key type — `BackStack.of<AppKey>` — so the lookup finds *your* stac
 - **Cross-cutting decorators** — `NavEntryDecorator` wraps every screen (DI scope, providers, tracing) and calls back when an entry leaves the stack, so you can tear down a Bloc/controller scoped to a destination.
 - **Results** — `await stack.pushForResult<Color>(picker)`; complete it with `pop(value)`. Never hangs.
 - **Deep links, one function** — `BackStackApp(onLink: (uri) => [...])` maps a URL straight onto the stack. No `MaterialApp.router` boilerplate; *you* decide what a link materializes. Async links from native (custom scheme, dynamic links, warm `app_links`) flow through the same `onLink` via `linkStream`.
-- **Auth gating** — `redirect` (pure transform) and `guard` (veto), applied once per change. Loop-proof. Split independent gates with `combineRedirects([...])`.
+- **Auth gating** — `redirect` (pure transform) and `guard` (veto), applied once per change. Loop-proof. Split independent gates with `combineRedirects([...])`, or gate on an **async** check (permission call, session refresh) with `AsyncRedirect` — still loop-proof.
 - **No duplicate screens** — `stack.pushOrMoveToTop(key)` reuses an open copy instead of stacking another; `moveToTop(test)` is the `clearTop` gesture.
 - **Debug the stack** — drop in `BackStackInspector<K>()` to watch entries push/pop live (no DevTools setup — the stack is just data).
 - **Adaptive layout** — `NavListDetail` turns one stack into list-detail / panes on wide screens, a stack on phones.
 - **Per-tab history** — `MultiNavStack` gives each bottom-nav tab its own persistent back stack.
 - **Shared elements** — `Hero` transitions just work, including inside nested displays.
-- **Custom transitions** — `TransitionPage` (fade / slideUp / scale), `DialogPage`, `SheetPage`.
+- **Custom transitions** — `TransitionPage`: fade / slideUp / scale plus the full Material motion set (shared axis X/Y/Z, fade-through), `DialogPage`, `SheetPage`. All zero-dep.
 - **Restoration** — `RestorableBackStack` survives process death without a URL.
 - **Leak-safe** — leaving the stack disposes the route; the whole suite runs under `leak_tracker`.
 
@@ -207,6 +208,26 @@ stack.redirect = (proposed) {
 
 A pure function applied **once** per change — it can't ping-pong like a URL-redirect engine.
 
+### Async gating
+
+`redirect` is synchronous by design — that's what makes it loop-proof. When a gate needs to *await* (a permission call, a session refresh, a "does this deep-linked doc exist" check), reach for `AsyncRedirect`. It's built on the same primitives, so the core stays sync and loop-proof:
+
+```dart
+final gate = AsyncRedirect<AppKey>(
+  check: (proposed) async {
+    if (proposed.any((k) => k is Admin) && !await session.hasAdminAccess()) {
+      return [const Login()]; // deny → bounce
+    }
+    return null;              // allow as proposed
+  },
+);
+stack
+  ..redirect = gate.call
+  ..refreshListenable = gate;
+```
+
+While a check runs the stack stays put and `gate.resolving` (a `ValueListenable<bool>`) flips true — drive a loading overlay from it. The decision is cached per destination so the check runs once, not on every rebuild; call `gate.invalidate()` after login/logout to force a re-check. Runnable in `example/lib/guarded.dart`.
+
 ## Bottom nav with per-tab history — on the web too
 
 `MultiNavStack` keeps one back stack per tab; `MultiNavDisplay` renders them (pass `lazy: true` to build a tab only when first opened):
@@ -290,6 +311,22 @@ Stack(children: [
 
 It lists every entry bottom-to-top, marks the current one, and updates on every push/pop. Handy while you're wiring flows; delete the one line to remove it.
 
+## Transitions
+
+A destination's transition is just the `Page` you return from `pageBuilder` — no separate transition registry. `TransitionPage` covers the common ones plus the full Material motion set (all dependency-free, and the shared-axis / fade-through motions animate the *outgoing* screen too):
+
+```dart
+pageBuilder: (context, key, pageKey) => switch (key) {
+  Step2()  => TransitionPage.sharedAxisHorizontal(key: pageKey, child: screenFor(key)), // peer step
+  Detail() => TransitionPage.sharedAxisScaled(key: pageKey, child: screenFor(key)),     // into a hierarchy
+  Tab()    => TransitionPage.fadeThrough(key: pageKey, child: screenFor(key)),          // unrelated switch
+  Toast()  => TransitionPage.fade(key: pageKey, child: screenFor(key)),
+  _        => MaterialPage(key: pageKey, child: screenFor(key)),                        // platform default
+};
+```
+
+Pick the motion by the *relationship* between screens: **shared axis** (X forward-among-peers, Y vertical, Z into-a-hierarchy) implies a spatial link; **fade-through** is for unrelated destinations (e.g. tabs). A destination can also carry its own transition by mixing in `NavPage` — then you don't even need a `pageBuilder`. Runnable in `example/lib/motion.dart`.
+
 ## Known limitations
 
 Honest edges, so nothing surprises you:
@@ -308,9 +345,13 @@ cd example && flutter run -t lib/multi_file/main.dart # simplest: destinations s
 cd example && flutter run -t lib/pokedex.dart         # NavListDetail + Hero on a real API
 cd example && flutter run -t lib/tabs.dart            # MultiNavStack — per-tab history
 cd example && flutter run -t lib/results.dart         # pushForResult — await a pushed screen
+cd example && flutter run -t lib/guarded.dart         # AsyncRedirect — async auth gating
+cd example && flutter run -t lib/motion.dart          # Material motion transitions
 cd example && flutter run -t lib/showcase.dart        # NavListDetail, one adaptive stack
 cd example && flutter run -t lib/entries.dart         # NavEntries + NavEntryDecorator
 ```
+
+New to back_stack from go_router? See **[Migrating from go_router](doc/MIGRATING_FROM_GO_ROUTER.md)**.
 
 See [`doc/PHILOSOPHY.md`](doc/PHILOSOPHY.md) for how each Flutter navigation leak and caveat is handled.
 

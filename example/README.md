@@ -12,6 +12,8 @@ flutter run -t lib/pokedex.dart      # Pokédex — NavListDetail + Hero on a re
 flutter run -t lib/showcase.dart     # NavListDetail — one stack, two adaptive layouts
 flutter run -t lib/tabs.dart         # MultiNavStack — bottom nav with per-tab history
 flutter run -t lib/results.dart      # pushForResult — await a value from a pushed screen
+flutter run -t lib/guarded.dart      # AsyncRedirect — loop-proof async auth gating
+flutter run -t lib/motion.dart       # Material motion (shared axis / fade-through)
 flutter run -t lib/entries.dart      # NavEntries (modular builder) + NavEntryDecorator
 flutter run -t lib/modular_demo.dart # fuller demo: feature-module entries + a cross-cutting decorator
 ```
@@ -33,6 +35,12 @@ flutter run -t lib/modular_demo.dart # fuller demo: feature-module entries + a c
 - **results.dart** — `pushForResult`: open a color picker and `await` the value it
   pops back, or `null` if it's dismissed. The classic "return a result" flow with
   no result channel to wire up.
+- **guarded.dart** — `AsyncRedirect`: a gated Admin screen runs an async permission
+  check (with a loading overlay driven by `gate.resolving`) and either stays or
+  bounces to Login — loop-proof, decision cached, `invalidate()` on auth change.
+- **motion.dart** — Material motion on `TransitionPage`: shared-axis X for a peer
+  step, shared-axis Z for drilling into a detail, chosen per destination in
+  `pageBuilder`.
 - **entries.dart** — register destinations as a map with `NavEntries` instead of
   one big `switch`, and scope setup/teardown to a destination with
   `NavEntryDecorator` (`decorate` + `onRemoved`).

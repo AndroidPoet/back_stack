@@ -108,6 +108,80 @@ class TransitionPage<T> extends Page<T> {
     super.restorationId,
   }) : transitionsBuilder = _scale;
 
+  /// Material **shared axis (X)** — the incoming screen slides in from the
+  /// trailing edge as the outgoing one slides out, both cross-fading. The
+  /// standard motion for a peer-to-peer step *forward* in a flow (e.g. an
+  /// onboarding pager or a next/step button). Animates the outgoing route too.
+  const TransitionPage.sharedAxisHorizontal({
+    required this.child,
+    this.duration = const Duration(milliseconds: 300),
+    this.reverseDuration,
+    this.opaque = true,
+    this.barrierDismissible = false,
+    this.barrierColor,
+    this.maintainState = true,
+    this.fullscreenDialog = false,
+    super.key,
+    super.name,
+    super.arguments,
+    super.restorationId,
+  }) : transitionsBuilder = _sharedAxisHorizontal;
+
+  /// Material **shared axis (Y)** — the vertical sibling of
+  /// [TransitionPage.sharedAxisHorizontal]: incoming rises in from below,
+  /// outgoing rises out above, both cross-fading.
+  const TransitionPage.sharedAxisVertical({
+    required this.child,
+    this.duration = const Duration(milliseconds: 300),
+    this.reverseDuration,
+    this.opaque = true,
+    this.barrierDismissible = false,
+    this.barrierColor,
+    this.maintainState = true,
+    this.fullscreenDialog = false,
+    super.key,
+    super.name,
+    super.arguments,
+    super.restorationId,
+  }) : transitionsBuilder = _sharedAxisVertical;
+
+  /// Material **shared axis (Z)** — the incoming screen scales up from behind
+  /// while the outgoing one scales away, both cross-fading. The motion for a
+  /// step *into* a hierarchy (a list → its detail). Animates the outgoing route.
+  const TransitionPage.sharedAxisScaled({
+    required this.child,
+    this.duration = const Duration(milliseconds: 300),
+    this.reverseDuration,
+    this.opaque = true,
+    this.barrierDismissible = false,
+    this.barrierColor,
+    this.maintainState = true,
+    this.fullscreenDialog = false,
+    super.key,
+    super.name,
+    super.arguments,
+    super.restorationId,
+  }) : transitionsBuilder = _sharedAxisScaled;
+
+  /// Material **fade through** — the outgoing screen fades out, then the incoming
+  /// one fades in while scaling up slightly. The motion for switching between
+  /// *unrelated* destinations (e.g. bottom-nav tabs) where there's no spatial
+  /// relationship to imply.
+  const TransitionPage.fadeThrough({
+    required this.child,
+    this.duration = const Duration(milliseconds: 300),
+    this.reverseDuration,
+    this.opaque = true,
+    this.barrierDismissible = false,
+    this.barrierColor,
+    this.maintainState = true,
+    this.fullscreenDialog = false,
+    super.key,
+    super.name,
+    super.arguments,
+    super.restorationId,
+  }) : transitionsBuilder = _fadeThrough;
+
   /// No animation at all (instant).
   const TransitionPage.none({
     required this.child,
@@ -189,6 +263,144 @@ class TransitionPage<T> extends Page<T> {
       child: child,
     ),
   );
+
+  static Widget _sharedAxisHorizontal(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => _SharedAxisTransition(
+    kind: _SharedAxisKind.horizontal,
+    animation: animation,
+    secondaryAnimation: secondaryAnimation,
+    child: child,
+  );
+
+  static Widget _sharedAxisVertical(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => _SharedAxisTransition(
+    kind: _SharedAxisKind.vertical,
+    animation: animation,
+    secondaryAnimation: secondaryAnimation,
+    child: child,
+  );
+
+  static Widget _sharedAxisScaled(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => _SharedAxisTransition(
+    kind: _SharedAxisKind.scaled,
+    animation: animation,
+    secondaryAnimation: secondaryAnimation,
+    child: child,
+  );
+
+  static Widget _fadeThrough(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => _FadeThroughTransition(
+    animation: animation,
+    secondaryAnimation: secondaryAnimation,
+    child: child,
+  );
+}
+
+/// Which Material shared-axis motion [_SharedAxisTransition] renders.
+enum _SharedAxisKind { horizontal, vertical, scaled }
+
+/// A dependency-free implementation of Material's shared-axis motion. A single
+/// route's transition covers both directions: [animation] drives it entering
+/// (and, reversed, leaving via back), while [secondaryAnimation] drives it being
+/// covered by — and revealed from under — a route pushed on top. That two-sided
+/// coordination is what makes the outgoing and incoming screens move together.
+class _SharedAxisTransition extends StatelessWidget {
+  const _SharedAxisTransition({
+    required this.kind,
+    required this.animation,
+    required this.secondaryAnimation,
+    required this.child,
+  });
+
+  final _SharedAxisKind kind;
+  final Animation<double> animation;
+  final Animation<double> secondaryAnimation;
+  final Widget child;
+
+  // Material spec: 30dp of travel, and the fades are offset so the two screens
+  // never both sit at full opacity mid-transition.
+  static const double _distance = 30;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([animation, secondaryAnimation]),
+      builder: (context, _) {
+        final a = animation.value; // 0 → 1 as this route enters
+        final s =
+            secondaryAnimation.value; // 0 → 1 as it goes to the background
+        // Fade in over the back 70% entering; fade out over the front 30% leaving.
+        final enter = ((a - 0.3) / 0.7).clamp(0.0, 1.0);
+        final exit = (1 - s / 0.3).clamp(0.0, 1.0);
+        final opacity = (a < 1 ? enter : exit).clamp(0.0, 1.0);
+
+        Widget moved;
+        if (kind == _SharedAxisKind.scaled) {
+          // Z axis: scale up from behind entering; scale away when covered.
+          final scale = a < 1 ? 0.80 + 0.20 * a : 1.0 + 0.10 * s;
+          moved = Transform.scale(scale: scale, child: child);
+        } else {
+          // X/Y axis: slide from +distance entering; to -distance when covered.
+          final d = (1 - a) * _distance - s * _distance;
+          final offset = kind == _SharedAxisKind.horizontal
+              ? Offset(d, 0)
+              : Offset(0, d);
+          moved = Transform.translate(offset: offset, child: child);
+        }
+        return Opacity(opacity: opacity, child: moved);
+      },
+    );
+  }
+}
+
+/// Dependency-free Material fade-through: the outgoing screen fades out first,
+/// then the incoming one fades in while scaling up slightly — no spatial link,
+/// for switching between unrelated destinations.
+class _FadeThroughTransition extends StatelessWidget {
+  const _FadeThroughTransition({
+    required this.animation,
+    required this.secondaryAnimation,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final Animation<double> secondaryAnimation;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([animation, secondaryAnimation]),
+      builder: (context, _) {
+        final a = animation.value;
+        final s = secondaryAnimation.value;
+        final enter = ((a - 0.3) / 0.7).clamp(0.0, 1.0);
+        final exit = (1 - s / 0.3).clamp(0.0, 1.0);
+        final opacity = (a < 1 ? enter : exit).clamp(0.0, 1.0);
+        final scale = a < 1 ? 0.92 + 0.08 * a : 1.0;
+        return Opacity(
+          opacity: opacity,
+          child: Transform.scale(scale: scale, child: child),
+        );
+      },
+    );
+  }
 }
 
 class _TransitionPageRoute<T> extends PageRoute<T> {

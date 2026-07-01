@@ -1,3 +1,29 @@
+## 0.3.0
+
+A feature drop aimed at everyday UX — all within the same few-concepts,
+zero-dependency model (nothing here changes how you own the stack).
+
+- **`AsyncRedirect` — loop-proof async auth gating.** `redirect` stays synchronous
+  (that's what makes it loop-proof), so async gates that need to *await* — a
+  permission call, a session refresh, a "does this deep-linked doc exist" check —
+  now have a first-class home. Assign `gate.call` to `redirect` and the gate to
+  `refreshListenable`: navigating to a gated destination holds it while the check
+  runs (`gate.resolving` drives a loading overlay), then either allows it or
+  redirects. Decisions are cached per destination so a check runs once; call
+  `gate.invalidate()` after login/logout. Built entirely on the existing sync
+  primitives — the core is unchanged.
+- **Material motion transitions on `TransitionPage`.** Adds `sharedAxisHorizontal`
+  / `sharedAxisVertical` / `sharedAxisScaled` (X/Y/Z) and `fadeThrough` alongside
+  the existing fade/slideUp/scale. Hand-rolled, dependency-free, and the shared-axis
+  / fade-through motions animate the *outgoing* screen too. Pick the motion by the
+  relationship between screens (peer step, into-a-hierarchy, unrelated switch).
+- **Migration guide from go_router** (`doc/MIGRATING_FROM_GO_ROUTER.md`) — a mapping
+  table plus before/after for routes, navigation calls, typed arguments, redirects
+  (incl. async), shell/tab routes, deep links and error handling, with notes on
+  migrating gradually.
+- **Examples:** `example/lib/guarded.dart` (async gating with a loading overlay) and
+  `example/lib/motion.dart` (per-destination Material motion).
+
 ## 0.2.8
 
 - **Async deep links from native.** The platform's `Router` only surfaces the
