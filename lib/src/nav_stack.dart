@@ -257,18 +257,41 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
       );
       if (adjusted.isNotEmpty) resolved = _reconcile(adjusted);
     }
-    if (guard != null && !guard!([for (final e in resolved) e.key])) return;
-    if (_sameAs(resolved)) return;
-    // Any entry dropped by this change that still has an awaiter gets null —
-    // pop() already handed an explicit result to the top before calling here.
-    final nextIds = {for (final e in resolved) e.id};
-    for (final e in _entries) {
-      if (!nextIds.contains(e.id)) _completeResult(e.id, null);
+    // A change that never lands — blocked by [guard], or a no-op once [redirect]
+    // is applied — can still have stranded a just-pushed [pushForResult] awaiter
+    // (its entry was added to [_pending] before we got here). Resolve any
+    // awaiter whose entry isn't on the stack so the future can never hang.
+    if (guard != null && !guard!([for (final e in resolved) e.key])) {
+      _prunePending();
+      return;
+    }
+    if (_sameAs(resolved)) {
+      _prunePending();
+      return;
     }
     _entries
       ..clear()
       ..addAll(resolved);
+    // Anything that left the stack (a pop, a replaceAll, or a key a redirect
+    // dropped) resolves its awaiter with null — pop() already handed the top an
+    // explicit result before calling here.
+    _prunePending();
     notifyListeners();
+  }
+
+  /// Complete (with null) and drop any [pushForResult] awaiter whose entry is no
+  /// longer on the stack, so an `await` never outlives its screen — whether the
+  /// screen left by popping, a redirect, a blocked push, or a replace.
+  void _prunePending() {
+    if (_pending.isEmpty) return;
+    final liveIds = {for (final e in _entries) e.id};
+    final orphans = [
+      for (final id in _pending.keys)
+        if (!liveIds.contains(id)) id,
+    ];
+    for (final id in orphans) {
+      _completeResult(id, null);
+    }
   }
 
   void _completeResult(int id, Object? result) {

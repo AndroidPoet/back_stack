@@ -43,7 +43,7 @@ System back, the Android predictive-back gesture, and the hardware back button a
 
 ```yaml
 dependencies:
-  back_stack: ^0.1.0
+  back_stack: ^0.2.0
 ```
 
 ## Reach the stack from anywhere
@@ -81,37 +81,44 @@ It doesn't subscribe by default (right for event handlers); pass `listen: true` 
 
 ## Web URLs & deep links
 
-One small class translates the stack ⇄ a `Uri`; the stack stays the source of truth.
+A codec translates the stack ⇄ a `Uri`; the stack stays the source of truth. It's just two `switch`es, so write them inline with `NavStackCodec.of` — no class to declare:
 
 ```dart
-class ShopCodec extends NavStackCodec {
-  @override
-  Uri encode(List<NavKey> stack) => switch (stack.last) {
+final codec = NavStackCodec<AppKey>.of(
+  encode: (stack) => switch (stack.last) {
     Home()             => Uri(path: '/'),
     Product(:final id) => Uri(path: '/products/$id'),
     _                  => Uri(path: '/'),
-  };
-
-  @override
-  List<NavKey> decode(Uri uri) {
+  },
+  decode: (uri) {
     final s = uri.pathSegments;
     if (s.length == 2 && s[0] == 'products') {
-      return [const Home(), Product(int.parse(s[1]))]; // layer on Home, not replace
+      final id = int.tryParse(s[1]);
+      if (id != null) return [const Home(), Product(id)]; // layer on Home, not replace
     }
     return [const Home()];
-  }
-}
+  },
+  fallback: [const Home()], // shown for a malformed / unknown link
+);
 
 MaterialApp.router(
   routerDelegate: NavStackRouterDelegate(
     stack: NavStack.of(const Home()),
-    codec: ShopCodec(),
+    codec: codec,
     builder: (context, key) => /* your screen */,
   ),
   routeInformationParser: const NavStackRouteInformationParser(),
   restorationScopeId: 'app', // survive process death
 );
 ```
+
+Prefer a class? Extend `NavStackCodec` and override `encode`/`decode` — same thing, reusable value.
+
+### Error handling — the one place a link can go wrong
+
+There is no `errorBuilder` and no "route not found" — destinations are typed and the `builder` switch is exhaustive, so **in-app navigation can't reach an unknown screen; that error class is gone at compile time.**
+
+The only untyped input is a **deep link** from outside. `decode` there can throw (a junk `int.parse`) or return nothing. back_stack never crashes on it: if `decode` throws or returns empty, it uses `fallbackFor` instead — the `fallback` list above, or override `fallbackFor` to route to a dedicated `NotFound()` screen. So `decode` can parse optimistically without defensive guards.
 
 ## Auth gating, without loops
 
@@ -123,6 +130,20 @@ stack.redirect = (proposed) {
 ```
 
 A pure function applied **once** per change — it can't ping-pong like a URL-redirect engine.
+
+## Bottom nav with per-tab history — on the web too
+
+`MultiNavStack` keeps one back stack per tab; `MultiNavDisplay` renders them (pass `lazy: true` to build a tab only when first opened). For URL sync, deep links and browser back on a tabbed app, drive it from the Router with `MultiNavStackRouterDelegate` + a `MultiNavStackCodec` (the multi-tab siblings of `NavStackRouterDelegate` / `NavStackCodec`). To survive process death, wrap it in `RestorableMultiNavStack` — every tab's stack and the active tab come back.
+
+## Known limitations
+
+Honest edges, so nothing surprises you:
+
+- **Custom `NavSceneHost` scenes rebuild across the breakpoint.** `NavListDetail` preserves each pane's `State` across the breakpoint (it gives every entry a stable `GlobalKey`, so screens are reparented, not rebuilt). A *custom* scene you write with `NavSceneHost` + your own `NavSceneStrategy` doesn't get that for free — wrap pane content in your own per-entry `GlobalKey` if you need it, or hoist the transient state above the display.
+- **`BackStack.of<K>` is nearest-by-type.** When a parent and a nested child stack share the *same* key type `K`, a screen gets the innermost one. Give nested stacks **distinct `NavKey` subtypes** (e.g. `AppKey` vs `WizardKey`) — then `BackStack.of<AppKey>` and `BackStack.of<WizardKey>` are unambiguous, and it's more type-safe anyway. (To reach a `MultiNavStack` host from a tab screen — e.g. to switch tabs — use `MultiBackStack.of(context)`.)
+- **`Hero` doesn't fly across a nested-`NavDisplay` boundary.** Each `NavDisplay` owns its own `HeroController`, so a shared-element flight works *within* one display, not between a parent screen and a child display's screen. This is structural to how Flutter's `Hero` matches endpoints per-`Navigator` — every router (go_router included) has the same limit.
+- **Custom `TransitionPage`s don't get the iOS edge-swipe-back** (they're plain `PageRoute`s). Use `CupertinoPage` where you want the native swipe.
+- **`redirect` is synchronous** by design (that's what makes it loop-proof). For async auth, point `refreshListenable` at your auth notifier and route to a loading screen; the redirect re-runs when auth resolves.
 
 ## Example
 

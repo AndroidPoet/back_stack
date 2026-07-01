@@ -79,6 +79,7 @@ class NavSceneHost<K extends NavKey> extends StatelessWidget {
     required this.builder,
     required this.scenes,
     this.pageBuilder,
+    this.observers = const [],
     super.key,
   });
 
@@ -94,6 +95,11 @@ class NavSceneHost<K extends NavKey> extends StatelessWidget {
 
   /// Optional custom page/transition for the single-pane fallback.
   final NavPageBuilder<K>? pageBuilder;
+
+  /// Forwarded to the single-pane fallback [NavDisplay]'s [Navigator]. Note that
+  /// a *claimed* scene renders panes directly (no Navigator), so observers only
+  /// fire while the layout is in its stacked/narrow form.
+  final List<NavigatorObserver> observers;
 
   @override
   Widget build(BuildContext context) {
@@ -119,6 +125,7 @@ class NavSceneHost<K extends NavKey> extends StatelessWidget {
                 stack: stack,
                 builder: builder,
                 pageBuilder: pageBuilder,
+                observers: observers,
               );
             },
           );
@@ -224,8 +231,13 @@ NavSceneStrategy<K> supportingPaneScene<K extends NavKey>({
 /// side by side; on a phone the same stack collapses to a normal animated stack.
 /// You write the stack once; the layout follows the window.
 ///
-/// A thin convenience over [NavSceneHost] + [listDetailScene]; drop to those for
-/// supporting panes, three columns, or a custom scene.
+/// Unlike the generic [NavSceneHost] + [listDetailScene] path, this widget keeps
+/// each pane's `State` alive **across the breakpoint**: a screen keeps its scroll
+/// position and controllers when you rotate/resize between the two-pane and
+/// stacked layouts. It does this by giving every entry a stable [GlobalKey], so
+/// Flutter *reparents* the existing screen Element to its new home instead of
+/// rebuilding it. Reach for [NavSceneHost] directly for supporting panes, three
+/// columns, or a custom scene.
 ///
 /// ```dart
 /// NavListDetail<AppKey>(
@@ -236,7 +248,7 @@ NavSceneStrategy<K> supportingPaneScene<K extends NavKey>({
 ///   placeholder: (context) => const Center(child: Text('Pick a message')),
 /// )
 /// ```
-class NavListDetail<K extends NavKey> extends StatelessWidget {
+class NavListDetail<K extends NavKey> extends StatefulWidget {
   /// Creates an adaptive list-detail display over [stack].
   const NavListDetail({
     required this.stack,
@@ -246,11 +258,16 @@ class NavListDetail<K extends NavKey> extends StatelessWidget {
     this.placeholder,
     this.breakpoint = 600,
     this.listPaneWidth = 360,
+    this.observers = const [],
     super.key,
   });
 
   /// The single back stack driving both layouts.
   final NavStack<K> stack;
+
+  /// Forwarded to the narrow/stacked layout's [NavDisplay]. See
+  /// [NavDisplay.observers]. (The wide two-pane layout has no [Navigator].)
+  final List<NavigatorObserver> observers;
 
   /// True for destinations that are a "detail" (the right pane / pushed page).
   final bool Function(K key) isDetail;
@@ -271,22 +288,105 @@ class NavListDetail<K extends NavKey> extends StatelessWidget {
   final double listPaneWidth;
 
   @override
+  State<NavListDetail<K>> createState() => _NavListDetailState<K>();
+}
+
+class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
+  /// A stable [GlobalKey] per entry id. Because this State outlives the
+  /// breakpoint flip (only its child subtree swaps), the same key wraps an
+  /// entry's screen whether it's a two-pane child (wide) or a [Navigator] page
+  /// (narrow) — so Flutter reparents the live Element rather than rebuilding it.
+  final Map<int, GlobalKey> _paneKeys = {};
+
+  GlobalKey _keyFor(int id) =>
+      _paneKeys.putIfAbsent(id, () => GlobalKey(debugLabel: 'pane-$id'));
+
+  @override
   Widget build(BuildContext context) {
-    return NavSceneHost<K>(
+    final stack = widget.stack;
+    return NavStackScope<K>(
       stack: stack,
-      // Single-pane / narrow fallback: detail or list by key.
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return ListenableBuilder(
+            listenable: stack,
+            builder: (context, _) {
+              // Drop keys for entries that have left the stack.
+              final liveIds = {for (final e in stack.entries) e.id};
+              _paneKeys.removeWhere((id, _) => !liveIds.contains(id));
+
+              return constraints.maxWidth >= widget.breakpoint
+                  ? _buildWide(context, stack)
+                  : _buildNarrow(context, stack);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildWide(BuildContext context, NavStack<K> stack) {
+    final entries = stack.entries;
+    final listEntry = entries.lastWhere(
+      (e) => !widget.isDetail(e.key),
+      orElse: () => entries.first,
+    );
+    final topEntry = entries.last;
+    final detailEntry = widget.isDetail(topEntry.key) ? topEntry : null;
+
+    final detailChild = detailEntry == null
+        ? (widget.placeholder?.call(context) ??
+              const ColoredBox(color: Color(0x00000000)))
+        : KeyedSubtree(
+            key: _keyFor(detailEntry.id),
+            child: widget.detail(context, detailEntry.key),
+          );
+
+    // The two panes aren't inside a Navigator, so route the system back gesture
+    // to the one stack while it can pop.
+    return PopScope(
+      canPop: !stack.canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) stack.pop();
+      },
+      child: Row(
+        children: [
+          SizedBox(
+            width: widget.listPaneWidth,
+            child: KeyedSubtree(
+              key: _keyFor(listEntry.id),
+              child: widget.list(context, listEntry.key),
+            ),
+          ),
+          const VerticalDivider(width: 1),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: detailChild,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNarrow(BuildContext context, NavStack<K> stack) {
+    return NavDisplay<K>(
+      stack: stack,
+      observers: widget.observers,
       builder: (context, key) =>
-          isDetail(key) ? detail(context, key) : list(context, key),
-      scenes: [
-        listDetailScene<K>(
-          isDetail: isDetail,
-          list: list,
-          detail: detail,
-          placeholder: placeholder,
-          minWidth: breakpoint,
-          listWidth: listPaneWidth,
+          widget.isDetail(key) ? widget.detail(context, key) : widget.list(context, key),
+      // Wrap each page's screen in the same per-entry GlobalKey the wide layout
+      // uses, so crossing the breakpoint reparents rather than rebuilds.
+      pageBuilder: (context, key, pageKey) => MaterialPage<dynamic>(
+        key: pageKey,
+        child: KeyedSubtree(
+          key: _keyFor((pageKey as ValueKey<int>).value),
+          child: widget.isDetail(key)
+              ? widget.detail(context, key)
+              : widget.list(context, key),
         ),
-      ],
+      ),
     );
   }
 }

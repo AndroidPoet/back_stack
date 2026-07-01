@@ -1,3 +1,35 @@
+## 0.2.0
+
+- Add `NavStackCodec.of(encode:, decode:, fallback:)` — build a deep-link codec
+  inline from two functions instead of subclassing `NavStackCodec`.
+- Add `NavStackCodec.fallbackFor(uri)` — the stack shown when a link is malformed
+  or unknown (defaults to decoding `/`; supply `fallback:` or override to route
+  to a NotFound screen).
+- Harden the deep-link boundary: `NavStackRouterDelegate` now decodes without
+  ever throwing — a `decode` that throws or returns empty falls back instead of
+  crashing the app, so codecs can parse optimistically.
+- **Fix:** `pushForResult` no longer hangs (and leaks its awaiter) when the push
+  is blocked by `guard` or collapsed to a no-op by `redirect` — the future now
+  resolves `null`, like every other way a screen can leave the stack.
+- **Web + tabs:** `MultiNavStackRouterDelegate` + `MultiNavStackCodec` bring URL
+  sync, deep links and OS back to a `MultiNavStack` (per-tab history) — the
+  multi-tab equivalents of `NavStackRouterDelegate` / `NavStackCodec`.
+- **Restoration + tabs:** `RestorableMultiNavStack` persists every tab's stack
+  and the active tab across process death. Both restorable widgets now survive a
+  corrupt/incompatible snapshot by keeping the freshly created stack instead of
+  crashing on cold start.
+- `MultiNavDisplay` gains `lazy` (build a tab only once first selected; default
+  `false`, unchanged behavior) and `observers`. `observers` is also now forwarded
+  by `NavSceneHost`, `NavListDetail` and `NavStackRouterDelegate` — a clean
+  `NavigatorObserver` seam for `screen_view` analytics.
+- **`NavListDetail` now preserves pane `State` across the breakpoint.** Rotating
+  or resizing between the two-pane and stacked layouts keeps each screen's scroll
+  position and controllers — every entry gets a stable `GlobalKey`, so Flutter
+  reparents the live screen instead of rebuilding it.
+- Add `MultiBackStack.of(context)` (and `MultiNavStackScope`) — reach the
+  `MultiNavStack` host from any tab screen to switch tabs / read the active
+  index, without passing the host down by hand.
+
 ## 0.1.1
 
 - Docs: the demo GIF now uses an absolute URL so it renders on the pub.dev

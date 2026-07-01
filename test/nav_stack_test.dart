@@ -508,6 +508,41 @@ void main() {
     );
 
     testWidgets(
+      'a malformed deep link falls back instead of crashing',
+      (tester) async {
+        final stack = NavStack<NavKey>.of(const Home());
+        addTearDown(stack.dispose);
+        // TestCodec.decode does int.parse(seg[1]) → throws on '/detail/abc'.
+        final delegate = NavStackRouterDelegate<NavKey>(
+          stack: stack,
+          codec: const TestCodec(),
+          builder: (context, key) => switch (key) {
+            Home() => const Text('home'),
+            Detail(:final id) => Text('detail $id'),
+            _ => const Text('?'),
+          },
+        );
+        addTearDown(delegate.dispose);
+
+        await tester.pumpWidget(
+          MaterialApp.router(
+            routerDelegate: delegate,
+            routeInformationParser: const NavStackRouteInformationParser(),
+          ),
+        );
+
+        // A junk id would throw inside decode; the delegate must swallow it and
+        // use fallbackFor (default: decode '/') rather than propagate.
+        await delegate.setNewRoutePath(Uri.parse('/detail/abc'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('home'), findsOneWidget);
+        expect(stack.keys, [isA<Home>()]);
+      },
+      experimentalLeakTesting: LeakTesting.settings.withIgnoredAll(),
+    );
+
+    testWidgets(
       'OS back (popRoute) pops the stack',
       (tester) async {
         // Under Router the initial URL ('/') seeds the stack, so push after mount.
@@ -1027,6 +1062,51 @@ void main() {
 
       await tester.pumpAndSettle();
       expect(tester.getSize(find.byKey(boxKey)).width, 200, reason: 'landed');
+    });
+  });
+
+  group('NavStackCodec.of', () {
+    test('builds a working codec inline without a subclass', () {
+      final codec = NavStackCodec<NavKey>.of(
+        encode: (stack) => switch (stack.last) {
+          Detail(:final id) => Uri(path: '/detail/$id'),
+          _ => Uri(path: '/'),
+        },
+        decode: (uri) {
+          final s = uri.pathSegments;
+          if (s.length == 2 && s[0] == 'detail') {
+            return [const Home(), Detail(int.parse(s[1]))];
+          }
+          return [const Home()];
+        },
+        fallback: [const Home()],
+      );
+
+      expect(codec.encode([const Detail(3)]).path, '/detail/3');
+      expect(codec.decode(Uri.parse('/detail/3')), [
+        isA<Home>(),
+        isA<Detail>(),
+      ]);
+    });
+
+    test('fallbackFor returns the supplied fallback for a bad link', () {
+      final codec = NavStackCodec<NavKey>.of(
+        encode: (_) => Uri(path: '/'),
+        decode: (uri) => [Detail(int.parse(uri.pathSegments[1]))], // throws
+        fallback: [const Home()],
+      );
+
+      // fallbackFor itself must be total — it returns the fallback, not decode.
+      expect(codec.fallbackFor(Uri.parse('/detail/oops')), [isA<Home>()]);
+    });
+
+    test('default fallbackFor decodes the root path', () {
+      final codec = NavStackCodec<NavKey>.of(
+        encode: (_) => Uri(path: '/'),
+        decode: (uri) => uri.path == '/' ? [const Home()] : [const Detail(1)],
+      );
+
+      expect(codec.fallbackFor(Uri.parse('/anything')), [isA<Home>()]);
     });
   });
 }
