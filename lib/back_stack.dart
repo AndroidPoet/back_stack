@@ -8,6 +8,7 @@ library;
 
 export 'src/nav_confirm.dart';
 export 'src/nav_display.dart';
+export 'src/nav_entries.dart';
 export 'src/nav_key.dart';
 export 'src/nav_multi.dart';
 export 'src/nav_pages.dart';

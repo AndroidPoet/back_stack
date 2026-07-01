@@ -1,3 +1,18 @@
+## 0.2.1
+
+- Add `NavEntries<K>` — a registrable destination-type → screen map
+  (`..on<Home>(...)`), Compose Nav3's `entryProvider`. Pass `builder: entries.call`
+  to `NavDisplay`. Composes across feature files/modules instead of one big
+  `switch`. The `switch` stays the default (compile-time exhaustive); this is the
+  modular option.
+- Add `NavEntryDecorator<K>` — Nav3's `NavEntryDecorator`. `decorate` wraps every
+  screen (providers/DI scopes/tracing; first decorator is outermost) and
+  `onRemoved` fires when an entry leaves the stack (or the display is disposed) so
+  you can tear down a Bloc/controller/scope tied to a destination. Wire via the new
+  `decorators:` on `NavDisplay` — also forwarded by `MultiNavDisplay`,
+  `NavSceneHost`, `NavListDetail`, `NavStackRouterDelegate` and
+  `MultiNavStackRouterDelegate`.
+
 ## 0.2.0
 
 - Add `NavStackCodec.of(encode:, decode:, fallback:)` — build a deep-link codec

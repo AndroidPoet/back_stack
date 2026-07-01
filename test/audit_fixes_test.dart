@@ -465,4 +465,134 @@ void main() {
       );
     }, experimentalLeakTesting: LeakTesting.settings.withIgnoredAll());
   });
+
+  group('NavEntries — registrable builder (Nav3 entryProvider)', () {
+    testWidgets('renders registered screens and drives navigation', (
+      tester,
+    ) async {
+      final stack = NavStack<AppKey>.of(const Feed());
+      addTearDown(stack.dispose);
+      final entries = NavEntries<AppKey>()
+        ..on<Feed>((context, key) => const Text('feed', textDirection: TextDirection.ltr))
+        ..on<Product>(
+          (context, key) =>
+              Text('product ${key.id}', textDirection: TextDirection.ltr),
+        );
+
+      await tester.pumpWidget(
+        MaterialApp(home: NavDisplay<AppKey>(stack: stack, builder: entries.call)),
+      );
+      expect(find.text('feed'), findsOneWidget);
+
+      stack.push(const Product(7));
+      await tester.pumpAndSettle();
+      expect(find.text('product 7'), findsOneWidget);
+    });
+
+    testWidgets('throws for an unregistered destination', (tester) async {
+      final stack = NavStack<AppKey>.of(const Feed());
+      addTearDown(stack.dispose);
+      final entries = NavEntries<AppKey>()
+        ..on<Feed>((context, key) => const Text('feed', textDirection: TextDirection.ltr));
+
+      await tester.pumpWidget(
+        MaterialApp(home: NavDisplay<AppKey>(stack: stack, builder: entries.call)),
+      );
+      stack.push(const Profile()); // never registered
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isA<StateError>());
+    });
+
+    test('composes across modules', () {
+      final entries = NavEntries<AppKey>();
+      // Two "feature modules" register into one shared instance.
+      void registerFeed(NavEntries<AppKey> e) =>
+          e.on<Feed>((c, k) => const Text('feed', textDirection: TextDirection.ltr));
+      void registerShop(NavEntries<AppKey> e) => e.on<Product>(
+        (c, k) => const Text('shop', textDirection: TextDirection.ltr),
+      );
+      registerFeed(entries);
+      registerShop(entries);
+
+      expect(entries.has<Feed>(), isTrue);
+      expect(entries.has<Product>(), isTrue);
+      expect(entries.has<Profile>(), isFalse);
+    });
+  });
+
+  group('NavEntryDecorator (Nav3 decorators)', () {
+    testWidgets('decorate wraps the visible screen', (tester) async {
+      final stack = NavStack<AppKey>.of(const Feed());
+      addTearDown(stack.dispose);
+      final deco = NavEntryDecorator<AppKey>(
+        decorate: (context, key, child) => Stack(
+          children: [child, const Text('deco', textDirection: TextDirection.ltr)],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NavDisplay<AppKey>(
+            stack: stack,
+            builder: _screenFor,
+            decorators: [deco],
+          ),
+        ),
+      );
+
+      expect(find.text('feed'), findsOneWidget);
+      expect(find.text('deco'), findsOneWidget); // wrapper applied
+    });
+
+    testWidgets('onRemoved fires with the key when an entry is popped', (
+      tester,
+    ) async {
+      final stack = NavStack<AppKey>.of(const Feed());
+      addTearDown(stack.dispose);
+      final removed = <AppKey>[];
+      final deco = NavEntryDecorator<AppKey>(onRemoved: removed.add);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NavDisplay<AppKey>(
+            stack: stack,
+            builder: _screenFor,
+            decorators: [deco],
+          ),
+        ),
+      );
+
+      stack.push(const Product(1));
+      await tester.pumpAndSettle();
+      expect(removed, isEmpty);
+
+      stack.pop();
+      await tester.pumpAndSettle();
+      expect(removed, [isA<Product>()], reason: 'the popped entry was cleaned up');
+    });
+
+    testWidgets('onRemoved fires for remaining entries when disposed', (
+      tester,
+    ) async {
+      final stack = NavStack<AppKey>.of(const Feed());
+      addTearDown(stack.dispose);
+      final removed = <AppKey>[];
+      final deco = NavEntryDecorator<AppKey>(onRemoved: removed.add);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NavDisplay<AppKey>(
+            stack: stack,
+            builder: _screenFor,
+            decorators: [deco],
+          ),
+        ),
+      );
+      expect(removed, isEmpty);
+
+      // Tear the display down — its remaining entry's scope must be cleaned up.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      expect(removed, [isA<Feed>()]);
+    });
+  });
 }

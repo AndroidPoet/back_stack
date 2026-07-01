@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://pub.dev/packages/back_stack"><img src="https://img.shields.io/pub/v/back_stack.svg" alt="pub package"></a>
   <a href="https://github.com/AndroidPoet/back_stack/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license"></a>
-  <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-43%20passing-brightgreen.svg" alt="tests"></a>
+  <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-65%20passing-brightgreen.svg" alt="tests"></a>
 </p>
 
 <p align="center"><img src="https://raw.githubusercontent.com/AndroidPoet/back_stack/main/doc/demo.gif" width="260" alt="back_stack demo"></p>
@@ -43,7 +43,7 @@ System back, the Android predictive-back gesture, and the hardware back button a
 
 ```yaml
 dependencies:
-  back_stack: ^0.2.0
+  back_stack: ^0.2.1
 ```
 
 ## Reach the stack from anywhere
@@ -69,6 +69,8 @@ It doesn't subscribe by default (right for event handlers); pass `listen: true` 
 ## Features
 
 - **Own the stack** — `push` / `pop` / `replaceAll` / `popUntil` / `edit`. It's just a `List`.
+- **One `switch`, or a modular map** — the exhaustive `switch` is the default; `NavEntries` (`..on<Home>(...)`) registers destinations across feature files when one `switch` gets big.
+- **Cross-cutting decorators** — `NavEntryDecorator` wraps every screen (DI scope, providers, tracing) and calls back when an entry leaves the stack, so you can tear down a Bloc/controller scoped to a destination.
 - **Results** — `await stack.pushForResult<Color>(picker)`; complete it with `pop(value)`. Never hangs.
 - **Web & deep links** — one `NavStackCodec` (`Uri ⇄ List`) gives URL sync, browser back/forward, and *you* decide what a link materializes.
 - **Auth gating** — `redirect` (pure transform) and `guard` (veto), applied once per change. Loop-proof.
@@ -135,6 +137,36 @@ A pure function applied **once** per change — it can't ping-pong like a URL-re
 
 `MultiNavStack` keeps one back stack per tab; `MultiNavDisplay` renders them (pass `lazy: true` to build a tab only when first opened). For URL sync, deep links and browser back on a tabbed app, drive it from the Router with `MultiNavStackRouterDelegate` + a `MultiNavStackCodec` (the multi-tab siblings of `NavStackRouterDelegate` / `NavStackCodec`). To survive process death, wrap it in `RestorableMultiNavStack` — every tab's stack and the active tab come back.
 
+## Modular destinations & scoped cleanup
+
+The exhaustive `switch` stays the default — the compiler tells you when a destination is unhandled. When one `switch` grows past comfort, register destinations as a map instead, composed across feature files:
+
+```dart
+final entries = NavEntries<AppKey>()
+  ..on<Home>((context, key) => const HomeScreen())
+  ..on<Product>((context, key) => ProductScreen(id: key.id));
+
+NavDisplay(stack: stack, builder: entries.call);
+```
+
+To wrap every screen — a DI scope, a provider, request tracing — and tear it down when the destination leaves the stack, pass a `NavEntryDecorator`:
+
+```dart
+NavDisplay(
+  stack: stack,
+  builder: entries.call,
+  decorators: [
+    NavEntryDecorator(
+      decorate: (context, key, child) =>
+          ProviderScope(overrides: [scopeFor(key)], child: child),
+      onRemoved: (key) => disposeScopeFor(key), // popped, replaced, or disposed
+    ),
+  ],
+);
+```
+
+`decorate` runs on every build (first decorator is the outermost wrapper); `onRemoved` fires once when the entry is popped, replaced, or the whole display is disposed — the hook `State.dispose` can't give you for a *non-widget* object.
+
 ## Known limitations
 
 Honest edges, so nothing surprises you:
@@ -148,8 +180,10 @@ Honest edges, so nothing surprises you:
 ## Example
 
 ```bash
-cd example && flutter run               # the shop demo
-cd example && flutter run -t lib/pokedex.dart   # the Pokédex above
+cd example && flutter run                        # the shop demo
+cd example && flutter run -t lib/pokedex.dart    # the Pokédex above
+cd example && flutter run -t lib/showcase.dart   # NavListDetail, one adaptive stack
+cd example && flutter run -t lib/entries.dart    # NavEntries + NavEntryDecorator
 ```
 
 See [`doc/PHILOSOPHY.md`](doc/PHILOSOPHY.md) for how each Flutter navigation leak and caveat is handled.

@@ -80,6 +80,7 @@ class NavSceneHost<K extends NavKey> extends StatelessWidget {
     required this.scenes,
     this.pageBuilder,
     this.observers = const [],
+    this.decorators = const [],
     super.key,
   });
 
@@ -100,6 +101,9 @@ class NavSceneHost<K extends NavKey> extends StatelessWidget {
   /// a *claimed* scene renders panes directly (no Navigator), so observers only
   /// fire while the layout is in its stacked/narrow form.
   final List<NavigatorObserver> observers;
+
+  /// Applied to the single-pane fallback's screens. See [NavEntryDecorator].
+  final List<NavEntryDecorator<K>> decorators;
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +130,7 @@ class NavSceneHost<K extends NavKey> extends StatelessWidget {
                 builder: builder,
                 pageBuilder: pageBuilder,
                 observers: observers,
+                decorators: decorators,
               );
             },
           );
@@ -259,6 +264,7 @@ class NavListDetail<K extends NavKey> extends StatefulWidget {
     this.breakpoint = 600,
     this.listPaneWidth = 360,
     this.observers = const [],
+    this.decorators = const [],
     super.key,
   });
 
@@ -268,6 +274,10 @@ class NavListDetail<K extends NavKey> extends StatefulWidget {
   /// Forwarded to the narrow/stacked layout's [NavDisplay]. See
   /// [NavDisplay.observers]. (The wide two-pane layout has no [Navigator].)
   final List<NavigatorObserver> observers;
+
+  /// Applied to screens in both layouts. See [NavEntryDecorator]. (In the wide
+  /// two-pane layout `onRemoved` still fires when an entry leaves the stack.)
+  final List<NavEntryDecorator<K>> decorators;
 
   /// True for destinations that are a "detail" (the right pane / pushed page).
   final bool Function(K key) isDetail;
@@ -301,6 +311,37 @@ class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
   GlobalKey _keyFor(int id) =>
       _paneKeys.putIfAbsent(id, () => GlobalKey(debugLabel: 'pane-$id'));
 
+  /// id→key of entries seen, so [NavEntryDecorator.onRemoved] fires once per
+  /// removal regardless of which layout is showing. Only kept when there are
+  /// decorators; handled here (not delegated to the narrow [NavDisplay]) so it
+  /// stays correct across the breakpoint.
+  final Map<int, K> _seen = {};
+
+  @override
+  void dispose() {
+    if (widget.decorators.isNotEmpty) {
+      _seen.values.forEach(_notifyRemoved);
+      _seen.clear();
+    }
+    super.dispose();
+  }
+
+  Widget _decorate(BuildContext context, K key, Widget child) {
+    if (widget.decorators.isEmpty) return child;
+    var result = child;
+    for (final decorator in widget.decorators.reversed) {
+      final wrap = decorator.decorate;
+      if (wrap != null) result = wrap(context, key, result);
+    }
+    return result;
+  }
+
+  void _notifyRemoved(K key) {
+    for (final decorator in widget.decorators) {
+      decorator.onRemoved?.call(key);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final stack = widget.stack;
@@ -311,9 +352,21 @@ class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
           return ListenableBuilder(
             listenable: stack,
             builder: (context, _) {
+              final entries = stack.entries;
+              final liveIds = {for (final e in entries) e.id};
               // Drop keys for entries that have left the stack.
-              final liveIds = {for (final e in stack.entries) e.id};
               _paneKeys.removeWhere((id, _) => !liveIds.contains(id));
+              // Fire onRemoved for departed entries, then refresh the record.
+              if (widget.decorators.isNotEmpty) {
+                for (final seen in _seen.entries) {
+                  if (!liveIds.contains(seen.key)) _notifyRemoved(seen.value);
+                }
+                _seen
+                  ..clear()
+                  ..addEntries([
+                    for (final e in entries) MapEntry(e.id, e.key),
+                  ]);
+              }
 
               return constraints.maxWidth >= widget.breakpoint
                   ? _buildWide(context, stack)
@@ -339,7 +392,11 @@ class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
               const ColoredBox(color: Color(0x00000000)))
         : KeyedSubtree(
             key: _keyFor(detailEntry.id),
-            child: widget.detail(context, detailEntry.key),
+            child: _decorate(
+              context,
+              detailEntry.key,
+              widget.detail(context, detailEntry.key),
+            ),
           );
 
     // The two panes aren't inside a Navigator, so route the system back gesture
@@ -355,7 +412,11 @@ class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
             width: widget.listPaneWidth,
             child: KeyedSubtree(
               key: _keyFor(listEntry.id),
-              child: widget.list(context, listEntry.key),
+              child: _decorate(
+                context,
+                listEntry.key,
+                widget.list(context, listEntry.key),
+              ),
             ),
           ),
           const VerticalDivider(width: 1),
@@ -376,15 +437,21 @@ class _NavListDetailState<K extends NavKey> extends State<NavListDetail<K>> {
       observers: widget.observers,
       builder: (context, key) =>
           widget.isDetail(key) ? widget.detail(context, key) : widget.list(context, key),
+      // decorators are applied here (not passed to NavDisplay) so onRemoved
+      // fires exactly once, tracked by this State across the breakpoint.
       // Wrap each page's screen in the same per-entry GlobalKey the wide layout
       // uses, so crossing the breakpoint reparents rather than rebuilds.
       pageBuilder: (context, key, pageKey) => MaterialPage<dynamic>(
         key: pageKey,
         child: KeyedSubtree(
           key: _keyFor((pageKey as ValueKey<int>).value),
-          child: widget.isDetail(key)
-              ? widget.detail(context, key)
-              : widget.list(context, key),
+          child: _decorate(
+            context,
+            key,
+            widget.isDetail(key)
+                ? widget.detail(context, key)
+                : widget.list(context, key),
+          ),
         ),
       ),
     );

@@ -108,6 +108,7 @@ class MultiNavDisplay<K extends NavKey> extends StatefulWidget {
     required this.builder,
     this.pageBuilder,
     this.observers = const [],
+    this.decorators = const [],
     this.lazy = false,
     super.key,
   });
@@ -124,6 +125,9 @@ class MultiNavDisplay<K extends NavKey> extends StatefulWidget {
   /// Attached to every tab's [Navigator] — your `screen_view` analytics seam,
   /// route logging, etc. Each tab's navigator reports its own pushes/pops.
   final List<NavigatorObserver> observers;
+
+  /// Applied to every tab's screens. See [NavEntryDecorator].
+  final List<NavEntryDecorator<K>> decorators;
 
   /// When true, a tab's screens are built only after it's first selected, then
   /// kept alive — go_router's `StatefulShellRoute` default, and lighter when
@@ -174,6 +178,7 @@ class _MultiNavDisplayState<K extends NavKey> extends State<MultiNavDisplay<K>> 
                       builder: widget.builder,
                       pageBuilder: widget.pageBuilder,
                       observers: widget.observers,
+                      decorators: widget.decorators,
                     )
                   else
                     // Not yet visited: keep the slot so IndexedStack indices stay

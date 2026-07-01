@@ -148,6 +148,7 @@ class NavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
     required this.builder,
     this.pageBuilder,
     this.observers = const [],
+    this.decorators = const [],
   }) {
     // URL follows the stack: when the list changes, tell the Router to re-read
     // currentConfiguration.
@@ -170,6 +171,9 @@ class NavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   /// or route logging for the URL-driven display.
   final List<NavigatorObserver> observers;
 
+  /// Applied to the display's screens. See [NavEntryDecorator].
+  final List<NavEntryDecorator<K>> decorators;
+
   /// Stable key for the inner [Navigator] so OS back (`popRoute`, provided by
   /// [PopNavigatorRouterDelegateMixin]) reaches it — and any [PopScope] or
   /// dialog gets first chance before the stack pops.
@@ -187,6 +191,7 @@ class NavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
       builder: builder,
       pageBuilder: pageBuilder,
       observers: observers,
+      decorators: decorators,
     );
   }
 
@@ -357,6 +362,7 @@ class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
     required this.builder,
     this.pageBuilder,
     this.observers = const [],
+    this.decorators = const [],
     this.lazy = false,
   }) {
     host.addListener(notifyListeners);
@@ -377,6 +383,9 @@ class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   /// Attached to every tab's [Navigator]. See [MultiNavDisplay.observers].
   final List<NavigatorObserver> observers;
 
+  /// Applied to every tab's screens. See [NavEntryDecorator].
+  final List<NavEntryDecorator<K>> decorators;
+
   /// Build tabs lazily. See [MultiNavDisplay.lazy].
   final bool lazy;
 
@@ -389,6 +398,7 @@ class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
     builder: builder,
     pageBuilder: pageBuilder,
     observers: observers,
+    decorators: decorators,
     lazy: lazy,
   );
 

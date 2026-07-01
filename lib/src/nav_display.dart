@@ -21,6 +21,51 @@ typedef NavPageBuilder<K extends NavKey> =
       LocalKey pageKey,
     );
 
+/// Wraps every entry's screen with cross-cutting logic — back_stack's take on
+/// Compose Nav3's `NavEntryDecorator`.
+///
+/// Two hooks, both optional:
+/// - [decorate] runs when each screen is built — wrap it in a provider/scope,
+///   inject a dependency, add tracing. In a list of decorators the **first is
+///   the outermost** wrapper.
+/// - [onRemoved] runs when an entry leaves the stack — popped, replaced, or the
+///   whole display disposed. Tear down anything you scoped to that destination:
+///   a Bloc, a controller, a DI scope. This is the piece Flutter's own
+///   `State.dispose` can't give you for *non-widget* objects.
+///
+/// ```dart
+/// NavDisplay<AppKey>(
+///   stack: stack,
+///   builder: screenFor,
+///   decorators: [
+///     NavEntryDecorator(
+///       decorate: (context, key, child) =>
+///           ProviderScope(overrides: [scopeFor(key)], child: child),
+///       onRemoved: (key) => disposeScopeFor(key),
+///     ),
+///   ],
+/// )
+/// ```
+///
+/// Create decorators once (a `const`, a field, or a `State` member) — like
+/// [NavDisplay.observers], not fresh in `build`. Decoration applies to
+/// [NavDisplay.builder]-built screens; a fully custom [NavDisplay.pageBuilder]
+/// owns its own content, so it isn't decorated.
+@immutable
+class NavEntryDecorator<K extends NavKey> {
+  /// Creates a decorator from an optional [decorate] wrapper and optional
+  /// [onRemoved] cleanup — supply either or both.
+  const NavEntryDecorator({this.decorate, this.onRemoved});
+
+  /// Wrap `child` (the screen built for `key`) — e.g. in a scope/provider.
+  final Widget Function(BuildContext context, K key, Widget child)? decorate;
+
+  /// Called when the entry for `key` leaves the stack. Clean up anything scoped
+  /// to it here. Fires once per removal (and for any entries still present when
+  /// the display is disposed).
+  final void Function(K key)? onRemoved;
+}
+
 /// Renders a [NavStack] and nothing more.
 ///
 /// It watches the stack and rebuilds the underlying [Navigator] whenever the
@@ -47,6 +92,7 @@ class NavDisplay<K extends NavKey> extends StatefulWidget {
     required this.builder,
     this.pageBuilder,
     this.observers = const [],
+    this.decorators = const [],
     this.navigatorKey,
     this.nested = false,
     super.key,
@@ -72,6 +118,10 @@ class NavDisplay<K extends NavKey> extends StatefulWidget {
   /// Forwarded to the underlying [Navigator].
   final List<NavigatorObserver> observers;
 
+  /// Cross-cutting wrappers/cleanup applied to every screen. See
+  /// [NavEntryDecorator]. The first decorator is the outermost wrapper.
+  final List<NavEntryDecorator<K>> decorators;
+
   /// Set true when this display is **nested inside another** (a child stack
   /// living inside a screen — a tab, a wizard, a master/detail pane).
   ///
@@ -94,6 +144,11 @@ class _NavDisplayState<K extends NavKey> extends State<NavDisplay<K>> {
   /// rebuilds without a diff algorithm: the stable id already is the diff.
   final Map<int, Page<dynamic>> _pages = {};
 
+  /// Keys of entries currently on the stack, by id — so when an id disappears we
+  /// can fire [NavEntryDecorator.onRemoved] with the right key. Only maintained
+  /// when there are decorators.
+  final Map<int, K> _seen = {};
+
   /// This [Navigator]'s own [HeroController], handed to it via a
   /// [HeroControllerScope] below. `MaterialApp` creates one material
   /// HeroController, but a single controller can only drive one Navigator — the
@@ -112,6 +167,12 @@ class _NavDisplayState<K extends NavKey> extends State<NavDisplay<K>> {
 
   @override
   void dispose() {
+    // The display is going away — let decorators clean up any entry still on
+    // the stack (their screens' State.dispose won't touch non-widget scopes).
+    if (widget.decorators.isNotEmpty) {
+      _seen.values.forEach(_notifyRemoved);
+      _seen.clear();
+    }
     _heroController.dispose();
     super.dispose();
   }
@@ -125,6 +186,9 @@ class _NavDisplayState<K extends NavKey> extends State<NavDisplay<K>> {
         !identical(widget.builder, oldWidget.builder) ||
         !identical(widget.pageBuilder, oldWidget.pageBuilder)) {
       _pages.clear();
+      // A swapped stack/builder is a different display, not a pop — forget the
+      // old entries without firing onRemoved (their identity no longer applies).
+      _seen.clear();
     }
   }
 
@@ -139,6 +203,17 @@ class _NavDisplayState<K extends NavKey> extends State<NavDisplay<K>> {
           final entries = widget.stack.entries;
           final live = {for (final e in entries) e.id};
           _pages.removeWhere((id, _) => !live.contains(id));
+
+          // Fire onRemoved for any entry that has left the stack, then refresh
+          // the id→key record for next time.
+          if (widget.decorators.isNotEmpty) {
+            for (final seen in _seen.entries) {
+              if (!live.contains(seen.key)) _notifyRemoved(seen.value);
+            }
+            _seen
+              ..clear()
+              ..addEntries([for (final e in entries) MapEntry(e.id, e.key)]);
+          }
 
           final navigator = HeroControllerScope(
             controller: _heroController,
@@ -177,12 +252,27 @@ class _NavDisplayState<K extends NavKey> extends State<NavDisplay<K>> {
   Page<dynamic> _pageFor(BuildContext context, K key, LocalKey pageKey) {
     final custom = widget.pageBuilder;
     if (custom != null) return custom(context, key, pageKey);
+    final content = _decorate(context, key, widget.builder(context, key));
     if (key is NavPage) {
-      return key.buildPage(context, widget.builder(context, key), pageKey);
+      return (key as NavPage).buildPage(context, content, pageKey);
     }
-    return MaterialPage<dynamic>(
-      key: pageKey,
-      child: widget.builder(context, key),
-    );
+    return MaterialPage<dynamic>(key: pageKey, child: content);
+  }
+
+  /// Wrap [child] with each decorator's `decorate`, first-decorator-outermost.
+  Widget _decorate(BuildContext context, K key, Widget child) {
+    if (widget.decorators.isEmpty) return child;
+    var result = child;
+    for (final decorator in widget.decorators.reversed) {
+      final wrap = decorator.decorate;
+      if (wrap != null) result = wrap(context, key, result);
+    }
+    return result;
+  }
+
+  void _notifyRemoved(K key) {
+    for (final decorator in widget.decorators) {
+      decorator.onRemoved?.call(key);
+    }
   }
 }
