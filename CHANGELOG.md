@@ -1,3 +1,15 @@
+## 0.2.4
+
+- **Docs:** the README hero snippet is corrected and no longer uses a `switch` —
+  it leads with `NavEntries` (`..on<Home>(...)`, `builder: entries.call`) over a
+  non-sealed `AppKey`, so it compiles as shown and mirrors a multi-file app. (The
+  previous snippet declared a `sealed` base with no `const` constructor and
+  inferred `NavStack<Home>`, so it didn't compile.)
+- Adds `example/lib/multi_file/` — the simplest multi-file layout: `app_key.dart`
+  + one file per feature (`home_feature.dart`, `product_feature.dart`) each with
+  its own destination, screen and `register*` call, collected in `main.dart`. No
+  `switch`, no central list.
+
 ## 0.2.3
 
 - **Fix:** a `pop(result)` that is vetoed by `guard` (or collapsed to a no-op by

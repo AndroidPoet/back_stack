@@ -14,21 +14,21 @@
 
 ```dart
 // 1. Destinations are typed objects. Arguments are real, checked fields.
-sealed class AppKey extends NavKey {}
-class Home extends AppKey { const Home(); }
+//    Not sealed — each feature can live in its own file.
+abstract class AppKey extends NavKey { const AppKey(); }
+class Home    extends AppKey { const Home(); }
 class Product extends AppKey { const Product(this.id); final int id; }
 
-// 2. The back stack is a list you own.
-final stack = NavStack.of(const Home());
+// 2. Map each destination to its screen. Add a screen = one line; split these
+//    `..on<T>()` calls across feature files if you want (see example/multi_file).
+final entries = NavEntries<AppKey>()
+  ..on<Home>((context, key) => const HomeScreen())
+  ..on<Product>((context, key) => ProductScreen(id: key.id));
 
-// 3. Render it. NavDisplay watches the list and follows.
-NavDisplay(
-  stack: stack,
-  builder: (context, key) => switch (key as AppKey) {
-    Home()             => const HomeScreen(),
-    Product(:final id) => ProductScreen(id: id),
-  },
-);
+// 3. The back stack is a list you own. NavDisplay watches it and follows.
+final stack = NavStack<AppKey>.of(const Home());
+
+NavDisplay<AppKey>(stack: stack, builder: entries.call);
 
 // Navigate by changing the list:
 stack.push(const Product(42));    // add
@@ -43,7 +43,7 @@ System back, the Android predictive-back gesture, and the hardware back button a
 
 ```yaml
 dependencies:
-  back_stack: ^0.2.2
+  back_stack: ^0.2.4
 ```
 
 ## Reach the stack from anywhere
