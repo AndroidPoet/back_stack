@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:back_stack/src/nav_display.dart';
 import 'package:back_stack/src/nav_key.dart';
 import 'package:back_stack/src/nav_router.dart';
@@ -31,6 +33,25 @@ import 'package:flutter/material.dart';
 /// first link in sync. It may parse optimistically: if it throws or returns
 /// empty, [onLinkFallback] (or `/`) is shown instead of crashing.
 ///
+/// **Async links from native.** The platform hands back_stack the launch URL and
+/// the standard app links it handles itself. Links that arrive *while the app is
+/// running* — a custom scheme (`myapp://…`), a Firebase Dynamic Link, a warm
+/// `app_links` link — come from a native plugin as a `Stream<Uri>` instead. Pass
+/// that stream as [linkStream] and every emission runs through the same [onLink]:
+///
+/// ```dart
+/// final appLinks = AppLinks(); // from the app_links package (you own the plugin)
+/// BackStackApp<AppKey>(
+///   stack: NavStack.of(const Home()),
+///   builder: entries.call,
+///   onLink: (uri) => /* map Uri → stack */,
+///   linkStream: appLinks.uriLinkStream, // runtime links → same onLink
+/// );
+/// ```
+///
+/// back_stack stays dependency-free: it owns the `Uri` → stack mapping and the
+/// subscription lifecycle; you bring the `Uri`s from whatever plugin you prefer.
+///
 /// Pass [toLink] to project the stack back onto the URL (for web address-bar
 /// sync and shareable links); omit it and the URL just stays `/`. For a bottom
 /// nav with per-tab history, or full control over `MaterialApp`, drop down to
@@ -43,6 +64,7 @@ class BackStackApp<K extends NavKey> extends StatefulWidget {
     required this.onLink,
     this.toLink,
     this.onLinkFallback,
+    this.linkStream,
     this.pageBuilder,
     this.observers = const [],
     this.decorators = const [],
@@ -78,6 +100,14 @@ class BackStackApp<K extends NavKey> extends StatefulWidget {
   /// The stack shown when a link can't be parsed (i.e. [onLink] threw or was
   /// empty). Defaults to `onLink(Uri(path: '/'))`.
   final List<K>? onLinkFallback;
+
+  /// A stream of deep links arriving **asynchronously from native** while the app
+  /// runs (custom-scheme links, Firebase Dynamic Links, warm `app_links` links).
+  /// Each `Uri` is routed through [onLink] with the same fallback safety as a
+  /// platform link. Bring it from your deep-link plugin (e.g.
+  /// `AppLinks().uriLinkStream`); back_stack owns the subscription and cancels it
+  /// on dispose. Omit it if you only need the launch URL and web links.
+  final Stream<Uri>? linkStream;
 
   /// Optional custom page/transition. See [NavDisplay.pageBuilder].
   final NavPageBuilder<K>? pageBuilder;
@@ -140,8 +170,28 @@ class _BackStackAppState<K extends NavKey> extends State<BackStackApp<K>> {
     decorators: widget.decorators,
   );
 
+  StreamSubscription<Uri>? _linkSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Feed runtime links from the app's plugin through the same onLink mapping.
+    _linkSub = widget.linkStream?.listen(_delegate.handleLink);
+  }
+
+  @override
+  void didUpdateWidget(BackStackApp<K> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Re-subscribe only if the stream instance actually changed.
+    if (widget.linkStream != oldWidget.linkStream) {
+      unawaited(_linkSub?.cancel());
+      _linkSub = widget.linkStream?.listen(_delegate.handleLink);
+    }
+  }
+
   @override
   void dispose() {
+    unawaited(_linkSub?.cancel());
     // We created the delegate; the caller owns (and disposes) the stack.
     _delegate.dispose();
     super.dispose();

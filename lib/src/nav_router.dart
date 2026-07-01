@@ -99,9 +99,9 @@ class _CallbackNavStackCodec<K extends NavKey> extends NavStackCodec<K> {
     required Uri Function(List<K> stack) encode,
     required List<K> Function(Uri uri) decode,
     List<K>? fallback,
-  })  : _encode = encode,
-        _decode = decode,
-        _fallback = fallback;
+  }) : _encode = encode,
+       _decode = decode,
+       _fallback = fallback;
 
   final Uri Function(List<K> stack) _encode;
   final List<K> Function(Uri uri) _decode;
@@ -196,8 +196,29 @@ class NavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   }
 
   @override
-  Future<void> setNewRoutePath(Uri configuration) async {
-    final next = _decodeOrFallback(configuration);
+  Future<void> setNewRoutePath(Uri configuration) async =>
+      handleLink(configuration);
+
+  /// Apply a deep link that arrived **asynchronously at runtime** to the stack —
+  /// the imperative sibling of the platform-driven [setNewRoutePath].
+  ///
+  /// The platform's [Router] only surfaces the launch URL and standard app links
+  /// it handles itself. A custom-scheme link (`myapp://…`), a Firebase Dynamic
+  /// Link, or a warm link delivered while the app is already running arrives
+  /// instead as a `Uri` from a native plugin — feed each one here.
+  ///
+  /// back_stack owns the `Uri` → stack step: this runs your [codec]'s
+  /// [NavStackCodec.decode] with the same never-throws hardening as a platform
+  /// link (a bad link falls back; if even the fallback fails the current stack is
+  /// kept). *You* own link **acquisition** — hand it the `Uri`s from whatever
+  /// plugin you use (`app_links`, `uni_links`, Firebase Dynamic Links…), usually
+  /// by listening to that plugin's runtime `Stream<Uri>`. [BackStackApp.linkStream]
+  /// wires exactly that for you.
+  ///
+  /// Changing the stack updates the URL (via [currentConfiguration]) just like a
+  /// platform link, so this stays consistent with browser/web sync.
+  void handleLink(Uri uri) {
+    final next = _decodeOrFallback(uri);
     if (next != null && next.isNotEmpty) stack.replaceAll(next);
   }
 
@@ -315,9 +336,9 @@ class _CallbackMultiNavStackCodec<K extends NavKey>
     required Uri Function(int tab, List<K> activeStack) encode,
     required MultiNavLocation<K> Function(Uri uri) decode,
     MultiNavLocation<K>? fallback,
-  })  : _encode = encode,
-        _decode = decode,
-        _fallback = fallback;
+  }) : _encode = encode,
+       _decode = decode,
+       _fallback = fallback;
 
   final Uri Function(int tab, List<K> activeStack) _encode;
   final MultiNavLocation<K> Function(Uri uri) _decode;
@@ -330,7 +351,8 @@ class _CallbackMultiNavStackCodec<K extends NavKey>
   MultiNavLocation<K> decode(Uri uri) => _decode(uri);
 
   @override
-  MultiNavLocation<K> fallbackFor(Uri uri) => _fallback ?? super.fallbackFor(uri);
+  MultiNavLocation<K> fallbackFor(Uri uri) =>
+      _fallback ?? super.fallbackFor(uri);
 }
 
 /// Drives a [MultiNavStack] from the platform [Router]: URL sync, deep links and
@@ -409,8 +431,16 @@ class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   Future<bool> popRoute() => SynchronousFuture<bool>(host.handleBack());
 
   @override
-  Future<void> setNewRoutePath(Uri configuration) async {
-    final loc = _decodeOrFallback(configuration);
+  Future<void> setNewRoutePath(Uri configuration) async =>
+      handleLink(configuration);
+
+  /// Apply a runtime deep link to the tabbed host — the imperative sibling of
+  /// [setNewRoutePath], for links delivered asynchronously by a native plugin
+  /// (custom scheme, Firebase Dynamic Link, warm `app_links`). Selects the target
+  /// tab and sets its stack, with the same never-throws hardening as a platform
+  /// link. See [NavStackRouterDelegate.handleLink] for who owns what.
+  void handleLink(Uri uri) {
+    final loc = _decodeOrFallback(uri);
     if (loc == null || loc.tab < 0 || loc.tab >= host.length) return;
     // Select without popping-to-root: we're about to set the stack explicitly.
     host.select(loc.tab, popToRootOnReselect: false);

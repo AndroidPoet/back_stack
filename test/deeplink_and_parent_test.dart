@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:back_stack/back_stack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -80,6 +82,52 @@ void main() {
       expect(stack.keys, hasLength(2));
       expect(stack.keys.first, isA<Home>());
       expect(stack.keys.last, isA<Product>().having((p) => p.id, 'id', 7));
+    },
+    experimentalLeakTesting: LeakTesting.settings.withIgnoredAll(),
+  );
+
+  testWidgets(
+    'BackStackApp: linkStream feeds async native links through onLink',
+    (tester) async {
+      // Stand in for a native plugin's runtime Uri stream (app_links, FDL…).
+      final nativeLinks = StreamController<Uri>.broadcast();
+      addTearDown(nativeLinks.close);
+      final stack = NavStack<AppKey>.of(const Home());
+      addTearDown(stack.dispose);
+
+      await tester.pumpWidget(
+        BackStackApp<AppKey>(
+          stack: stack,
+          restorationScopeId: null,
+          linkStream: nativeLinks.stream,
+          builder: (context, key) => switch (key) {
+            Home() => const Text('home'),
+            Product(:final id) => Text('product $id'),
+            _ => const Text('other'),
+          },
+          onLink: (uri) {
+            final s = uri.pathSegments;
+            if (s.length == 2 && s[0] == 'products') {
+              return [const Home(), Product(int.parse(s[1]))];
+            }
+            return [const Home()];
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('home'), findsOneWidget);
+
+      // A link arrives asynchronously from native while the app is running.
+      nativeLinks.add(Uri.parse('myapp://app/products/42'));
+      await tester.pumpAndSettle();
+      expect(find.text('product 42'), findsOneWidget);
+      expect(stack.keys.last, isA<Product>().having((p) => p.id, 'id', 42));
+
+      // A malformed runtime link falls back instead of crashing.
+      nativeLinks.add(Uri.parse('myapp://app/products/not-an-int'));
+      await tester.pumpAndSettle();
+      expect(find.text('home'), findsOneWidget);
+      expect(stack.keys, [const Home()]);
     },
     experimentalLeakTesting: LeakTesting.settings.withIgnoredAll(),
   );

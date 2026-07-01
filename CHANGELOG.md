@@ -1,3 +1,19 @@
+## 0.2.8
+
+- **Async deep links from native.** The platform's `Router` only surfaces the
+  launch URL and standard app links it resolves itself. Links that arrive *while
+  the app runs* — a custom scheme (`myapp://…`), a Firebase Dynamic Link, a warm
+  `app_links` link — come from a native plugin as a `Stream<Uri>`. `BackStackApp`
+  now takes an optional **`linkStream`**: hand it that stream and every emission
+  runs through the same `onLink`, with the same never-throws fallback as a
+  platform link. back_stack owns the subscription lifecycle and cancels it on
+  dispose; you bring the `Uri`s from whatever plugin you use — no new dependency.
+- **`NavStackRouterDelegate.handleLink(uri)` / `MultiNavStackRouterDelegate.handleLink(uri)`** —
+  the imperative sibling of `setNewRoutePath`, for driving your own router: apply
+  a runtime link to the stack with the identical decode-or-fallback hardening.
+  (`setNewRoutePath` now delegates to it, so platform and runtime links share one
+  code path.)
+
 ## 0.2.7
 
 A correctness + documentation pass. No API changes — every fix is behavior that

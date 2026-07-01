@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://pub.dev/packages/back_stack"><img src="https://img.shields.io/pub/v/back_stack.svg" alt="pub package"></a>
   <a href="https://github.com/AndroidPoet/back_stack/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license"></a>
-  <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-75%20passing-brightgreen.svg" alt="tests"></a>
+  <a href="https://github.com/AndroidPoet/back_stack"><img src="https://img.shields.io/badge/tests-76%20passing-brightgreen.svg" alt="tests"></a>
 </p>
 
 <p align="center"><img src="https://raw.githubusercontent.com/AndroidPoet/back_stack/main/doc/demo.gif" width="260" alt="back_stack demo"></p>
@@ -43,7 +43,7 @@ System back, the Android predictive-back gesture, and the hardware back button a
 
 ```yaml
 dependencies:
-  back_stack: ^0.2.7
+  back_stack: ^0.2.8
 ```
 
 ## Contents
@@ -86,7 +86,7 @@ Pass the key type — `BackStack.of<AppKey>` — so the lookup finds *your* stac
 - **A modular map, or one `switch`** — `NavEntries` (`..on<Home>(...)`) registers destinations across feature files; prefer an exhaustive `switch` when you want the compiler to flag a destination you forgot.
 - **Cross-cutting decorators** — `NavEntryDecorator` wraps every screen (DI scope, providers, tracing) and calls back when an entry leaves the stack, so you can tear down a Bloc/controller scoped to a destination.
 - **Results** — `await stack.pushForResult<Color>(picker)`; complete it with `pop(value)`. Never hangs.
-- **Deep links, one function** — `BackStackApp(onLink: (uri) => [...])` maps a URL straight onto the stack. No `MaterialApp.router` boilerplate; *you* decide what a link materializes.
+- **Deep links, one function** — `BackStackApp(onLink: (uri) => [...])` maps a URL straight onto the stack. No `MaterialApp.router` boilerplate; *you* decide what a link materializes. Async links from native (custom scheme, dynamic links, warm `app_links`) flow through the same `onLink` via `linkStream`.
 - **Auth gating** — `redirect` (pure transform) and `guard` (veto), applied once per change. Loop-proof. Split independent gates with `combineRedirects([...])`.
 - **No duplicate screens** — `stack.pushOrMoveToTop(key)` reuses an open copy instead of stacking another; `moveToTop(test)` is the `clearTop` gesture.
 - **Debug the stack** — drop in `BackStackInspector<K>()` to watch entries push/pop live (no DevTools setup — the stack is just data).
@@ -118,6 +118,23 @@ void main() => runApp(
 ```
 
 `onLink` may parse optimistically — if it throws or returns empty, `onLinkFallback` (or `/`) is shown instead of crashing. Pass `toLink: (stack) => Uri(...)` to also project the stack back onto the web address bar. Back (system + browser) flows into the list automatically; `restorationScopeId` is set by default so the stack survives process death.
+
+### Async links from native
+
+The platform hands `BackStackApp` the launch URL and the standard app links it resolves itself. Links that arrive **while the app is already running** — a custom scheme (`myapp://…`), a Firebase Dynamic Link, a warm `app_links` link — come from a native plugin as a `Stream<Uri>`. Pass that stream as `linkStream` and every emission runs through the *same* `onLink`:
+
+```dart
+final appLinks = AppLinks(); // from the app_links package — you own the plugin
+
+BackStackApp<AppKey>(
+  stack: NavStack.of(const Home()),
+  builder: entries.call,
+  onLink: (uri) => /* map Uri → stack */,
+  linkStream: appLinks.uriLinkStream, // runtime links → same onLink, same fallback
+);
+```
+
+back_stack stays dependency-free: it owns the `Uri` → stack mapping and the subscription lifecycle; you bring the `Uri`s from whatever plugin you prefer. Driving your own router instead? Call `delegate.handleLink(uri)` (on `NavStackRouterDelegate` or `MultiNavStackRouterDelegate`) — the imperative sibling of the platform's `setNewRoutePath`, with the same never-throws hardening.
 
 For a bottom-nav app with per-tab history, or when you need full `MaterialApp` control, drop to `NavStackRouterDelegate` directly (below).
 
