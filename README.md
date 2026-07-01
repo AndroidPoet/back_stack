@@ -43,7 +43,7 @@ System back, the Android predictive-back gesture, and the hardware back button a
 
 ```yaml
 dependencies:
-  back_stack: ^0.2.4
+  back_stack: ^0.2.5
 ```
 
 ## Reach the stack from anywhere
@@ -72,7 +72,7 @@ It doesn't subscribe by default (right for event handlers); pass `listen: true` 
 - **One `switch`, or a modular map** — the exhaustive `switch` is the default; `NavEntries` (`..on<Home>(...)`) registers destinations across feature files when one `switch` gets big.
 - **Cross-cutting decorators** — `NavEntryDecorator` wraps every screen (DI scope, providers, tracing) and calls back when an entry leaves the stack, so you can tear down a Bloc/controller scoped to a destination.
 - **Results** — `await stack.pushForResult<Color>(picker)`; complete it with `pop(value)`. Never hangs.
-- **Web & deep links** — one `NavStackCodec` (`Uri ⇄ List`) gives URL sync, browser back/forward, and *you* decide what a link materializes.
+- **Deep links, one function** — `BackStackApp(onLink: (uri) => [...])` maps a URL straight onto the stack. No `MaterialApp.router` boilerplate; *you* decide what a link materializes.
 - **Auth gating** — `redirect` (pure transform) and `guard` (veto), applied once per change. Loop-proof.
 - **Adaptive layout** — `NavListDetail` turns one stack into list-detail / panes on wide screens, a stack on phones.
 - **Per-tab history** — `MultiNavStack` gives each bottom-nav tab its own persistent back stack.
@@ -81,9 +81,33 @@ It doesn't subscribe by default (right for event handlers); pass `listen: true` 
 - **Restoration** — `RestorableBackStack` survives process death without a URL.
 - **Leak-safe** — leaving the stack disposes the route; the whole suite runs under `leak_tracker`.
 
-## Web URLs & deep links
+## Deep links — one function
 
-A codec translates the stack ⇄ a `Uri`; the stack stays the source of truth. It's just two `switch`es, so write them inline with `NavStackCodec.of` — no class to declare:
+The whole deep-link setup is one widget and one function. `BackStackApp` bundles the `MaterialApp.router` + delegate + parser wiring; you write `onLink`, mapping an incoming `Uri` to the stack it should show:
+
+```dart
+void main() => runApp(
+  BackStackApp<AppKey>(
+    stack: NavStack.of(const Home()),
+    builder: entries.call,
+    onLink: (uri) {
+      final s = uri.pathSegments;
+      if (s.length == 2 && s.first == 'products') {
+        return [const Home(), Product(int.parse(s[1]))]; // layer on Home
+      }
+      return [const Home()]; // also the launch URL '/'
+    },
+  ),
+);
+```
+
+`onLink` may parse optimistically — if it throws or returns empty, `onLinkFallback` (or `/`) is shown instead of crashing. Pass `toLink: (stack) => Uri(...)` to also project the stack back onto the web address bar. Back (system + browser) flows into the list automatically; `restorationScopeId` is set by default so the stack survives process death.
+
+For a bottom-nav app with per-tab history, or when you need full `MaterialApp` control, drop to `NavStackRouterDelegate` directly (below).
+
+## Web URLs & the codec (full control)
+
+Under the hood a codec translates the stack ⇄ a `Uri`; the stack stays the source of truth. `BackStackApp` builds one for you from `onLink`/`toLink`; reach for the codec directly when you want a reusable value or full `MaterialApp.router` control. It's just two `switch`es, so write them inline with `NavStackCodec.of` — no class to declare:
 
 ```dart
 final codec = NavStackCodec<AppKey>.of(
@@ -172,7 +196,7 @@ NavDisplay(
 Honest edges, so nothing surprises you:
 
 - **Custom `NavSceneHost` scenes rebuild across the breakpoint.** `NavListDetail` preserves each pane's `State` across the breakpoint (it gives every entry a stable `GlobalKey`, so screens are reparented, not rebuilt). A *custom* scene you write with `NavSceneHost` + your own `NavSceneStrategy` doesn't get that for free — wrap pane content in your own per-entry `GlobalKey` if you need it, or hoist the transient state above the display.
-- **`BackStack.of<K>` is nearest-by-type.** When a parent and a nested child stack share the *same* key type `K`, a screen gets the innermost one. Give nested stacks **distinct `NavKey` subtypes** (e.g. `AppKey` vs `WizardKey`) — then `BackStack.of<AppKey>` and `BackStack.of<WizardKey>` are unambiguous, and it's more type-safe anyway. (To reach a `MultiNavStack` host from a tab screen — e.g. to switch tabs — use `MultiBackStack.of(context)`.)
+- **`BackStack.of<K>` is nearest-by-type.** When a parent and a nested child stack share the *same* key type `K`, a screen gets the innermost one. Give nested stacks **distinct `NavKey` subtypes** (e.g. `AppKey` vs `WizardKey`) — then `BackStack.of<AppKey>` and `BackStack.of<WizardKey>` are unambiguous, and it's more type-safe anyway. If you must keep the same type, `BackStack.parentOf<K>(context)` reaches the stack one level up — e.g. a child screen calling `BackStack.parentOf<AppKey>(context).pop()` pops the *outer* flow. (To reach a `MultiNavStack` host from a tab screen — e.g. to switch tabs — use `MultiBackStack.of(context)`.)
 - **`Hero` doesn't fly across a nested-`NavDisplay` boundary.** Each `NavDisplay` owns its own `HeroController`, so a shared-element flight works *within* one display, not between a parent screen and a child display's screen. This is structural to how Flutter's `Hero` matches endpoints per-`Navigator` — every router (go_router included) has the same limit.
 - **Custom `TransitionPage`s don't get the iOS edge-swipe-back** (they're plain `PageRoute`s). Use `CupertinoPage` where you want the native swipe.
 - **`redirect` is synchronous** by design (that's what makes it loop-proof). For async auth, point `refreshListenable` at your auth notifier and route to a loading screen; the redirect re-runs when auth resolves.

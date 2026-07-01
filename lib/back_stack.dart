@@ -6,6 +6,7 @@
 /// compiler.
 library;
 
+export 'src/nav_app.dart';
 export 'src/nav_confirm.dart';
 export 'src/nav_display.dart';
 export 'src/nav_entries.dart';

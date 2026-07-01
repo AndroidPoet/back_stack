@@ -1,3 +1,18 @@
+## 0.2.5
+
+- **`BackStackApp<K>` — deep links in one function.** A single widget bundles the
+  `MaterialApp.router` + `NavStackRouterDelegate` + parser wiring; you supply only
+  `onLink: (Uri) => [destinations]`. Optional `toLink` projects the stack back onto
+  the web address bar, `onLinkFallback` handles bad links, and `restorationScopeId`
+  is set by default. Zero new dependencies — it drives Flutter's own Router.
+- **`BackStack.parentOf<K>(context)` (and `maybeParentOf`)** — reach the stack one
+  level up from a nested child when parent and child share the same key type, so a
+  child screen can `BackStack.parentOf<AppKey>(context).pop()` the outer flow.
+  (Distinct key subtypes + `BackStack.of<ParentKey>` remain the more type-safe
+  default.)
+- `example/lib/multi_file/` now uses `BackStackApp` — the simplest example also
+  demonstrates deep links (`/product/7`).
+
 ## 0.2.4
 
 - **Docs:** the README hero snippet is corrected and no longer uses a `switch` —

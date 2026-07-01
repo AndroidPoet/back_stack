@@ -66,4 +66,56 @@ abstract final class BackStack {
         .getElementForInheritedWidgetOfExactType<NavStackScope<K>>();
     return (element?.widget as NavStackScope<K>?)?.stack;
   }
+
+  /// The [NavStack] of type [K] **one level up** from the nearest one — a nested
+  /// child screen's *parent* stack.
+  ///
+  /// Use this to drive the parent from inside a nested [NavDisplay] when parent
+  /// and child share the same key type [K] — e.g. a detail screen deep in a
+  /// child stack that wants to pop the *outer* flow:
+  ///
+  /// ```dart
+  /// // From a screen inside a nested NavDisplay<AppKey>:
+  /// BackStack.parentOf<AppKey>(context).pop(); // pops the parent, not the child
+  /// ```
+  ///
+  /// When the nested stacks use *different* key subtypes (the usual, more
+  /// type-safe setup), plain [of] with the parent's type already reaches it
+  /// unambiguously — prefer that. This is the escape hatch for the same-type
+  /// case. Throws (in debug) if there is no second [NavStackScope] of type [K]
+  /// above; use [maybeParentOf] when a parent may not exist.
+  static NavStack<K> parentOf<K extends NavKey>(
+    BuildContext context, {
+    bool listen = false,
+  }) {
+    final parent = maybeParentOf<K>(context, listen: listen);
+    assert(
+      parent != null,
+      'BackStack.parentOf<$K>() found no *parent* NavStackScope<$K> — there is '
+      'no second stack of this type above. Use BackStack.of<$K> for the nearest '
+      'one, or give the parent stack a different key type and reach it with '
+      'BackStack.of<ParentKey>.',
+    );
+    return parent!;
+  }
+
+  /// Like [parentOf] but returns null when there is no parent stack of type [K].
+  static NavStack<K>? maybeParentOf<K extends NavKey>(
+    BuildContext context, {
+    bool listen = false,
+  }) {
+    // Collect the NavStackScope<K> ancestors, nearest first. [0] is the child
+    // stack the caller sits in; [1] is its parent.
+    final scopes = <InheritedElement>[];
+    context.visitAncestorElements((element) {
+      if (element is InheritedElement && element.widget is NavStackScope<K>) {
+        scopes.add(element);
+      }
+      return true;
+    });
+    if (scopes.length < 2) return null;
+    final parentElement = scopes[1];
+    if (listen) context.dependOnInheritedElement(parentElement);
+    return (parentElement.widget as NavStackScope<K>).stack;
+  }
 }
