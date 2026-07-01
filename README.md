@@ -43,7 +43,7 @@ System back, the Android predictive-back gesture, and the hardware back button a
 
 ```yaml
 dependencies:
-  back_stack: ^0.2.5
+  back_stack: ^0.2.6
 ```
 
 ## Reach the stack from anywhere
@@ -73,7 +73,9 @@ It doesn't subscribe by default (right for event handlers); pass `listen: true` 
 - **Cross-cutting decorators** — `NavEntryDecorator` wraps every screen (DI scope, providers, tracing) and calls back when an entry leaves the stack, so you can tear down a Bloc/controller scoped to a destination.
 - **Results** — `await stack.pushForResult<Color>(picker)`; complete it with `pop(value)`. Never hangs.
 - **Deep links, one function** — `BackStackApp(onLink: (uri) => [...])` maps a URL straight onto the stack. No `MaterialApp.router` boilerplate; *you* decide what a link materializes.
-- **Auth gating** — `redirect` (pure transform) and `guard` (veto), applied once per change. Loop-proof.
+- **Auth gating** — `redirect` (pure transform) and `guard` (veto), applied once per change. Loop-proof. Split independent gates with `combineRedirects([...])`.
+- **No duplicate screens** — `stack.pushOrMoveToTop(key)` reuses an open copy instead of stacking another; `moveToTop(test)` is the `clearTop` gesture.
+- **Debug the stack** — drop in `BackStackInspector<K>()` to watch entries push/pop live (no DevTools setup — the stack is just data).
 - **Adaptive layout** — `NavListDetail` turns one stack into list-detail / panes on wide screens, a stack on phones.
 - **Per-tab history** — `MultiNavStack` gives each bottom-nav tab its own persistent back stack.
 - **Shared elements** — `Hero` transitions just work, including inside nested displays.

@@ -201,6 +201,35 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
     _commit(next);
   }
 
+  /// If a destination matching [test] is already on the stack, bring it to the
+  /// top by removing everything above it, and return true. Otherwise do nothing
+  /// and return false.
+  ///
+  /// The "don't stack another copy — go back to the one that's open" gesture
+  /// (Android's `singleTop`/`clearTop`), expressed over your list.
+  bool moveToTop(bool Function(K key) test) {
+    final i = _entries.lastIndexWhere((e) => test(e.key));
+    if (i == -1) return false;
+    if (i != _entries.length - 1) _commit(_entries.sublist(0, i + 1));
+    return true;
+  }
+
+  /// Push [key] — unless an equal destination is already on the stack, in which
+  /// case bring that existing one to the top instead of adding a duplicate.
+  ///
+  /// Equality is [NavKey] `==` (mix in [EquatableNavKey] for value equality),
+  /// unless you pass [isSame]. Handy for a deep link or a menu item that
+  /// shouldn't pile up copies of the same screen.
+  void pushOrMoveToTop(K key, {bool Function(K existing, K incoming)? isSame}) {
+    final match = isSame ?? (existing, incoming) => existing == incoming;
+    final i = _entries.lastIndexWhere((e) => match(e.key, key));
+    if (i == -1) {
+      push(key);
+    } else if (i != _entries.length - 1) {
+      _commit(_entries.sublist(0, i + 1));
+    }
+  }
+
   /// Escape hatch: mutate the stack as a plain list. Whatever the list looks
   /// like after [edit] runs is the new stack. The whole point of owning the
   /// back stack — anything you can do to a `List`, you can do to navigation.

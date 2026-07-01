@@ -1,3 +1,22 @@
+## 0.2.6
+
+Convenience additions inspired by other routers — all built as plain list ops /
+pure functions / one widget, so the core model is unchanged (no codegen, no
+dependencies).
+
+- **`NavStack.moveToTop(test)` / `pushOrMoveToTop(key)`** — reuse a screen that's
+  already open instead of stacking a duplicate (`singleTop`/`clearTop`).
+- **`combineRedirects([...])`** — compose several redirect rules (auth,
+  onboarding, flags) into one `redirect`, each a pure `proposed → RedirectStep`
+  (`ContinueRedirect` / `RedirectTo(stack, stop:)`). Same once-per-change,
+  loop-proof semantics as a single `redirect`.
+- **`BackStackInspector<K>`** — a zero-dep in-app widget that lists the live stack
+  (current entry marked), for debugging without any DevTools plumbing.
+
+Not added, on purpose: a string query-parameter bag (typed key fields already
+carry a destination's arguments — a stringly-typed side channel would work
+against that) and a route-file code generator (back_stack stays codegen-free).
+
 ## 0.2.5
 
 - **`BackStackApp<K>` — deep links in one function.** A single widget bundles the
