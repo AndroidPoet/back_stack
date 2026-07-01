@@ -78,21 +78,39 @@ class ShopAppState extends State<ShopApp> {
   // ── 2. The back stack: a list you own. Start at Login.
   final stack = NavStack<AppKey>.of(const Login());
 
-  // ── 3. The delegate drives the platform Router from the stack: the browser
+  // ── 3. The routing table. Two ways to write it; this app uses both so you
+  //    can see them:
+  //
+  //    (a) NavEntries — register each destination's screen by type. A modular
+  //        alternative to one big `switch`: each feature file can add its own
+  //        `..on<T>()` to a shared instance. Pass `entries.call` as the builder.
+  //        (For a small app the `switch` is just as good — see pokedex.dart.)
+  final entries = NavEntries<AppKey>()
+    ..on<Login>((context, key) => const LoginScreen())
+    ..on<Catalog>((context, key) => const CatalogScreen())
+    ..on<Product>((context, key) => ProductScreen(name: key.name, price: key.price))
+    ..on<Cart>((context, key) => const CartScreen());
+
+  //    (b) NavEntryDecorator — wrap every screen and get a callback when an
+  //        entry leaves the stack. Here we just log each visit and its teardown;
+  //        in a real app `decorate` is where a DI scope / provider goes and
+  //        `onRemoved` is where you dispose the thing you scoped to that screen.
+  final analytics = NavEntryDecorator<AppKey>(
+    decorate: (context, key, child) {
+      debugPrint('screen_view: ${key.runtimeType}');
+      return child;
+    },
+    onRemoved: (key) => debugPrint('left: ${key.runtimeType} — tear down its scope'),
+  );
+
+  // ── 4. The delegate drives the platform Router from the stack: the browser
   //    URL updates as you navigate, and deep links / OS back flow back in.
+  //    Screens reach the stack via BackStack.of<AppKey>(context) — no passing it down.
   late final delegate = NavStackRouterDelegate<AppKey>(
     stack: stack,
     codec: const ShopCodec(),
-    // Screens reach the stack via BackStack.of<AppKey>(context) — no passing it down.
-    builder: (context, key) => switch (key) {
-      Login() => const LoginScreen(),
-      Catalog() => const CatalogScreen(),
-      Product(:final name, :final price) => ProductScreen(
-        name: name,
-        price: price,
-      ),
-      Cart() => const CartScreen(),
-    },
+    builder: entries.call,
+    decorators: [analytics],
   );
 
   @override

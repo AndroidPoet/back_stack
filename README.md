@@ -43,7 +43,7 @@ System back, the Android predictive-back gesture, and the hardware back button a
 
 ```yaml
 dependencies:
-  back_stack: ^0.2.1
+  back_stack: ^0.2.2
 ```
 
 ## Reach the stack from anywhere

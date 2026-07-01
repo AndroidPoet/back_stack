@@ -1,3 +1,10 @@
+## 0.2.2
+
+- The main example (`example/lib/main.dart`, the one shown on the package page)
+  now demonstrates `NavEntries` (as the builder) and `NavEntryDecorator` (a
+  `screen_view` log + teardown hook) — so both APIs are visible on pub.dev's
+  Example tab. No library code changed.
+
 ## 0.2.1
 
 - Add `NavEntries<K>` — a registrable destination-type → screen map
