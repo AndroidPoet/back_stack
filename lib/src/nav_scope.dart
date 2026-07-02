@@ -42,13 +42,25 @@ abstract final class BackStack {
     bool listen = false,
   }) {
     final stack = maybeOf<K>(context, listen: listen);
-    assert(
-      stack != null,
-      'BackStack.of<$K>() found no NavStackScope<$K>. It is provided by '
-      'NavDisplay<$K>; call this from a screen it builds with the same key '
-      'type, or wrap your subtree in a NavStackScope<$K>.',
-    );
-    return stack!;
+    if (stack == null) {
+      throw FlutterError.fromParts([
+        ErrorSummary('BackStack.of<$K>() found no NavStackScope<$K>.'),
+        if (K == NavKey)
+          ErrorHint(
+            'The type argument resolved to the NavKey base type — this '
+            'usually means it was omitted. Call '
+            "BackStack.of<YourKeyType>(context) with your app's destination "
+            'type.',
+          )
+        else
+          ErrorHint(
+            'A NavStackScope<$K> is provided by NavDisplay<$K>; call this '
+            'from a screen it builds with the same key type, or wrap your '
+            'subtree in a NavStackScope<$K>.',
+          ),
+      ]);
+    }
+    return stack;
   }
 
   /// The nearest [NavStack] of type [K], or null if there is no matching
@@ -89,14 +101,19 @@ abstract final class BackStack {
     bool listen = false,
   }) {
     final parent = maybeParentOf<K>(context, listen: listen);
-    assert(
-      parent != null,
-      'BackStack.parentOf<$K>() found no *parent* NavStackScope<$K> — there is '
-      'no second stack of this type above. Use BackStack.of<$K> for the nearest '
-      'one, or give the parent stack a different key type and reach it with '
-      'BackStack.of<ParentKey>.',
-    );
-    return parent!;
+    if (parent == null) {
+      throw FlutterError.fromParts([
+        ErrorSummary(
+          'BackStack.parentOf<$K>() found no *parent* NavStackScope<$K> — '
+          'there is no second stack of this type above.',
+        ),
+        ErrorHint(
+          'Use BackStack.of<$K> for the nearest one, or give the parent stack '
+          'a different key type and reach it with BackStack.of<ParentKey>.',
+        ),
+      ]);
+    }
+    return parent;
   }
 
   /// Like [parentOf] but returns null when there is no parent stack of type [K].
@@ -105,11 +122,13 @@ abstract final class BackStack {
     bool listen = false,
   }) {
     // Collect the NavStackScope<K> ancestors, nearest first. [0] is the child
-    // stack the caller sits in; [1] is its parent.
+    // stack the caller sits in; [1] is its parent. Stop walking as soon as
+    // both are found — no need to visit the rest of a deep tree.
     final scopes = <InheritedElement>[];
     context.visitAncestorElements((element) {
       if (element is InheritedElement && element.widget is NavStackScope<K>) {
         scopes.add(element);
+        if (scopes.length == 2) return false;
       }
       return true;
     });

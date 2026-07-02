@@ -15,12 +15,12 @@ typedef AsyncNavCheck<K extends NavKey> =
 /// synchronous to stay loop-proof) can't do on its own.
 ///
 /// It's built entirely on the sync primitives, so back_stack's core doesn't
-/// change: assign [call] to [NavStack.redirect] and the instance itself to
-/// [NavStack.refreshListenable]. When you navigate to a gated destination the
-/// stack stays put and [resolving] flips true while [check] runs; the moment it
-/// resolves, the redirect re-runs and either leaves the stack alone (allowed) or
-/// replaces it (denied). Decisions are cached per proposed stack, so a check
-/// runs once, not on every rebuild — that's what keeps it loop-proof.
+/// change: call [attach] and the gate wires itself to the stack. When you
+/// navigate to a gated destination the stack stays put and [resolving] flips
+/// true while [check] runs; the moment it resolves, the redirect re-runs and
+/// either leaves the stack alone (allowed) or replaces it (denied). Decisions
+/// are cached per proposed stack, so a check runs once, not on every rebuild —
+/// that's what keeps it loop-proof.
 ///
 /// ```dart
 /// final gate = AsyncRedirect<AppKey>(
@@ -30,10 +30,7 @@ typedef AsyncNavCheck<K extends NavKey> =
 ///     }
 ///     return null;              // allow as proposed
 ///   },
-/// );
-/// stack
-///   ..redirect = gate.call
-///   ..refreshListenable = gate;
+/// )..attach(stack);
 ///
 /// // Show a loading overlay while any gate check is in flight:
 /// Stack(children: [
@@ -49,17 +46,26 @@ typedef AsyncNavCheck<K extends NavKey> =
 /// [invalidate] to drop the cache so the next navigation re-checks.
 class AsyncRedirect<K extends NavKey> extends ChangeNotifier {
   /// Gates navigation with [check]. [signature] identifies "the same proposed
-  /// stack" for caching (default: the keys' own `==`/`hashCode`, so give gated
+  /// stack" for caching (default: element-wise key equality, so give gated
   /// destinations value equality via [EquatableNavKey] for stable caching). If
-  /// [check] throws, the navigation is allowed unchanged.
+  /// [check] throws, the navigation is allowed unchanged. At most [cacheSize]
+  /// decisions are kept; older ones are evicted and simply re-checked next time.
   AsyncRedirect({
     required AsyncNavCheck<K> check,
     Object Function(List<K> proposed)? signature,
-  }) : _check = check,
-       _signatureOf = signature ?? _defaultSignature;
+    this.cacheSize = 128,
+  }) : assert(cacheSize > 0, 'cacheSize must be positive'),
+       _check = check,
+       _signatureOf =
+           signature ?? ((proposed) => _StackSignature(List.of(proposed)));
 
   final AsyncNavCheck<K> _check;
   final Object Function(List<K> proposed) _signatureOf;
+
+  /// Upper bound on cached decisions. Browsing many distinct gated stacks (e.g.
+  /// one per product id) can't grow memory without limit: the oldest decision is
+  /// evicted and re-checked if that stack is proposed again.
+  final int cacheSize;
 
   // signature → decision. Present means resolved; a null value means "allowed".
   final Map<Object, List<K>?> _decided = {};
@@ -68,14 +74,43 @@ class AsyncRedirect<K extends NavKey> extends ChangeNotifier {
 
   final ValueNotifier<bool> _resolving = ValueNotifier<bool>(false);
 
+  bool _disposed = false;
+  NavStack<K>? _attached;
+
   /// True while at least one [check] is running — drive a loading overlay from it.
   ValueListenable<bool> get resolving => _resolving;
 
-  /// The sync redirect to hand to [NavStack.redirect]. Pure given the decision
-  /// cache: returns [proposed] unchanged while a check runs or once allowed, and
-  /// the replacement stack once denied. Kicks off the check the first time it
-  /// sees an undecided proposed stack.
+  /// Wire this gate to [stack] in one call — sets [NavStack.redirect] to [call]
+  /// **and** [NavStack.refreshListenable] to this gate, the two halves that must
+  /// always go together (with only the redirect set, a resolved check would
+  /// never re-run it, and gating would silently hang). Detaches from any
+  /// previously attached stack first. [dispose] detaches automatically.
+  void attach(NavStack<K> stack) {
+    detach();
+    _attached = stack;
+    stack
+      ..redirect = call
+      ..refreshListenable = this;
+  }
+
+  /// Undo [attach]: clear the stack's `redirect`/`refreshListenable` if they
+  /// still point at this gate. Safe to call when never attached.
+  void detach() {
+    final stack = _attached;
+    _attached = null;
+    if (stack == null) return;
+    if (stack.redirect == call) stack.redirect = null;
+    if (identical(stack.refreshListenable, this)) {
+      stack.refreshListenable = null;
+    }
+  }
+
+  /// The sync redirect to hand to [NavStack.redirect] (done for you by
+  /// [attach]). Pure given the decision cache: returns [proposed] unchanged
+  /// while a check runs or once allowed, and the replacement stack once denied.
+  /// Kicks off the check the first time it sees an undecided proposed stack.
   List<K> call(List<K> proposed) {
+    if (_disposed) return proposed;
     final sig = _signatureOf(proposed);
     if (_decided.containsKey(sig)) {
       return _decided[sig] ?? proposed; // null decision = allow as-is
@@ -98,7 +133,11 @@ class AsyncRedirect<K extends NavKey> extends ChangeNotifier {
     } on Object {
       decision = null; // errors fail open — allow, don't strand the user
     }
+    // The gate may have been disposed while the check was in flight — its
+    // notifier is gone and nobody is listening; just drop the result.
+    if (_disposed) return;
     _decided[sig] = decision;
+    if (_decided.length > cacheSize) _decided.remove(_decided.keys.first);
     _inFlight.remove(sig);
     if (_inFlight.isEmpty) _resolving.value = false;
     // Re-run the redirect against the current stack now that we've decided.
@@ -114,10 +153,26 @@ class AsyncRedirect<K extends NavKey> extends ChangeNotifier {
 
   @override
   void dispose() {
+    detach();
+    _disposed = true;
+    _inFlight.clear();
     _resolving.dispose();
     super.dispose();
   }
+}
 
-  static Object _defaultSignature(List<NavKey> proposed) =>
-      Object.hashAll(proposed);
+/// Default cache identity for a proposed stack: element-wise key equality (not
+/// a bare hash, which could collide two different stacks into one decision).
+@immutable
+class _StackSignature {
+  const _StackSignature(this.keys);
+
+  final List<NavKey> keys;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _StackSignature && listEquals(other.keys, keys);
+
+  @override
+  int get hashCode => Object.hashAll(keys);
 }

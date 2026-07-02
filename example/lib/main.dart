@@ -35,36 +35,25 @@ class Cart extends AppKey {
   List<Object?> get props => const [];
 }
 
-// ── The codec: stack ⇄ URL. The only thing you write to get web URL sync, deep
-//    links, browser/OS back and restoration. The stack stays the source of truth.
-class ShopCodec extends NavStackCodec<AppKey> {
-  const ShopCodec();
-
-  @override
-  Uri encode(List<AppKey> stack) => switch (stack.last) {
-    Login() => Uri(path: '/'),
-    Catalog() => Uri(path: '/catalog'),
-    Product(:final name, :final price) => Uri(path: '/product/$name/$price'),
-    Cart() => Uri(path: '/cart'),
-  };
-
-  @override
-  List<AppKey> decode(Uri uri) {
-    final s = uri.pathSegments;
-    if (s.isEmpty) return [const Login()];
-    switch (s.first) {
-      case 'catalog':
-        return [const Catalog()];
-      case 'cart':
-        return [const Catalog(), const Cart()]; // layer Cart on Catalog
-      case 'product':
-        if (s.length == 3) {
-          return [const Catalog(), Product(s[1], int.tryParse(s[2]) ?? 0)];
-        }
-    }
-    return [const Login()];
-  }
-}
+// ── 2. The URL table: each destination declared ONCE, both directions.
+//    Deep links, the web address bar, browser back/forward, share links and
+//    state restoration all derive from this one table — they can't drift apart.
+//    `parents:` is the layer-vs-replace choice: Back from a deep-linked
+//    product goes to the catalog, not out of the app.
+final links = NavLinks<AppKey>()
+  ..on<Login>('/', decode: (m) => const Login())
+  ..on<Catalog>('/catalog', decode: (m) => const Catalog())
+  ..on<Product>(
+    '/product/:name/:price',
+    decode: (m) => Product(m.str('name')!, m.integer('price')!),
+    encode: (key) => {'name': key.name, 'price': key.price},
+    parents: (key) => const [Catalog()],
+  )
+  ..on<Cart>(
+    '/cart',
+    decode: (m) => const Cart(),
+    parents: (key) => const [Catalog()],
+  );
 
 void main() => runApp(const ShopApp());
 
@@ -75,63 +64,54 @@ class ShopApp extends StatefulWidget {
 }
 
 class ShopAppState extends State<ShopApp> {
-  // ── 2. The back stack: a list you own. Start at Login.
+  // ── 3. The back stack: a list you own. Start at Login.
   final stack = NavStack<AppKey>.of(const Login());
 
-  // ── 3. The routing table. Two ways to write it; this app uses both so you
-  //    can see them:
-  //
-  //    (a) NavEntries — register each destination's screen by type. A modular
-  //        alternative to one big `switch`: each feature file can add its own
-  //        `..on<T>()` to a shared instance. Pass `entries.call` as the builder.
-  //        (For a small app the `switch` is just as good — see pokedex.dart.)
+  // ── 4. One line per screen. A modular alternative to one big `switch`:
+  //    each feature file can add its own `..on<T>()` to a shared instance.
+  //    (For a small app a `switch` builder is just as good — see pokedex.dart.)
   final entries = NavEntries<AppKey>()
     ..on<Login>((context, key) => const LoginScreen())
     ..on<Catalog>((context, key) => const CatalogScreen())
-    ..on<Product>((context, key) => ProductScreen(name: key.name, price: key.price))
+    ..on<Product>(
+      (context, key) => ProductScreen(name: key.name, price: key.price),
+    )
     ..on<Cart>((context, key) => const CartScreen());
 
-  //    (b) NavEntryDecorator — wrap every screen and get a callback when an
-  //        entry leaves the stack. Here we just log each visit and its teardown;
-  //        in a real app `decorate` is where a DI scope / provider goes and
-  //        `onRemoved` is where you dispose the thing you scoped to that screen.
+  //    NavEntryDecorator — wrap every screen and get a callback when an entry
+  //    leaves the stack. Here we just log each visit and its teardown; in a
+  //    real app `decorate` is where a DI scope / provider goes and `onRemoved`
+  //    is where you dispose the thing you scoped to that screen.
   final analytics = NavEntryDecorator<AppKey>(
     decorate: (context, key, child) {
       debugPrint('screen_view: ${key.runtimeType}');
       return child;
     },
-    onRemoved: (key) => debugPrint('left: ${key.runtimeType} — tear down its scope'),
-  );
-
-  // ── 4. The delegate drives the platform Router from the stack: the browser
-  //    URL updates as you navigate, and deep links / OS back flow back in.
-  //    Screens reach the stack via BackStack.of<AppKey>(context) — no passing it down.
-  late final delegate = NavStackRouterDelegate<AppKey>(
-    stack: stack,
-    codec: const ShopCodec(),
-    builder: entries.call,
-    decorators: [analytics],
+    onRemoved: (key) =>
+        debugPrint('left: ${key.runtimeType} — tear down its scope'),
   );
 
   @override
   void dispose() {
-    // You created them, so you dispose them.
-    delegate.dispose();
-    stack.dispose();
+    stack.dispose(); // you created it, you dispose it
     super.dispose();
   }
 
+  // ── 5. One widget. Deep links, web URLs, OS/browser back, and full-stack
+  //    state restoration are wired internally from `links`. Screens reach the
+  //    stack via BackStack.of<AppKey>(context) — no passing it down.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
+    return BackStackApp<AppKey>(
+      stack: stack,
+      entries: entries,
+      links: links,
+      decorators: [analytics],
       title: 'back_stack demo',
       theme: ThemeData(
         colorSchemeSeed: const Color(0xFF4F46E5), // indigo, calm premium tone
         useMaterial3: true,
       ),
-      routerDelegate: delegate,
-      routeInformationParser: const NavStackRouteInformationParser(),
-      restorationScopeId: 'app', // survive process death
     );
   }
 }

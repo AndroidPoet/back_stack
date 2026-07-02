@@ -339,33 +339,69 @@ class _SharedAxisTransition extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([animation, secondaryAnimation]),
-      builder: (context, _) {
-        final a = animation.value; // 0 → 1 as this route enters
-        final s =
-            secondaryAnimation.value; // 0 → 1 as it goes to the background
-        // Fade in over the back 70% entering; fade out over the front 30% leaving.
-        final enter = ((a - 0.3) / 0.7).clamp(0.0, 1.0);
-        final exit = (1 - s / 0.3).clamp(0.0, 1.0);
-        final opacity = (a < 1 ? enter : exit).clamp(0.0, 1.0);
-
-        Widget moved;
-        if (kind == _SharedAxisKind.scaled) {
-          // Z axis: scale up from behind entering; scale away when covered.
-          final scale = a < 1 ? 0.80 + 0.20 * a : 1.0 + 0.10 * s;
-          moved = Transform.scale(scale: scale, child: child);
-        } else {
-          // X/Y axis: slide from +distance entering; to -distance when covered.
-          final d = (1 - a) * _distance - s * _distance;
-          final offset = kind == _SharedAxisKind.horizontal
-              ? Offset(d, 0)
-              : Offset(0, d);
-          moved = Transform.translate(offset: offset, child: child);
-        }
-        return Opacity(opacity: opacity, child: moved);
-      },
+    // Render-object-level animation: FadeTransition/ScaleTransition repaint per
+    // frame without rebuilding any widget, and the translate branch passes the
+    // subtree through AnimatedBuilder's `child` slot for the same reason.
+    final Widget moved;
+    if (kind == _SharedAxisKind.scaled) {
+      // Z axis: scale up from behind entering; scale away when covered.
+      moved = ScaleTransition(
+        scale: _SharedAxisScale(animation, secondaryAnimation),
+        child: child,
+      );
+    } else {
+      // X/Y axis: slide from +distance entering; to -distance when covered.
+      moved = AnimatedBuilder(
+        animation: Listenable.merge([animation, secondaryAnimation]),
+        child: child,
+        builder: (context, child) {
+          final d =
+              (1 - animation.value) * _distance -
+              secondaryAnimation.value * _distance;
+          return Transform.translate(
+            offset: kind == _SharedAxisKind.horizontal
+                ? Offset(d, 0)
+                : Offset(0, d),
+            child: child,
+          );
+        },
+      );
+    }
+    return FadeTransition(
+      opacity: _EnterExitFade(animation, secondaryAnimation),
+      child: moved,
     );
+  }
+}
+
+/// Fade in over the back 70% entering; fade out over the front 30% of being
+/// covered — the Material offset that keeps the two screens from both sitting
+/// at full opacity mid-transition. A derived [Animation] so [FadeTransition]
+/// can animate at the render-object level.
+class _EnterExitFade extends CompoundAnimation<double> {
+  _EnterExitFade(Animation<double> primary, Animation<double> secondary)
+    : super(first: primary, next: secondary);
+
+  @override
+  double get value {
+    final a = first.value; // 0 → 1 as this route enters
+    final s = next.value; // 0 → 1 as it goes to the background
+    final enter = ((a - 0.3) / 0.7).clamp(0.0, 1.0);
+    final exit = (1 - s / 0.3).clamp(0.0, 1.0);
+    return (a < 1 ? enter : exit).clamp(0.0, 1.0);
+  }
+}
+
+/// Shared-axis Z scale: up from 80% entering; slightly past 100% when covered.
+class _SharedAxisScale extends CompoundAnimation<double> {
+  _SharedAxisScale(Animation<double> primary, Animation<double> secondary)
+    : super(first: primary, next: secondary);
+
+  @override
+  double get value {
+    final a = first.value;
+    final s = next.value;
+    return a < 1 ? 0.80 + 0.20 * a : 1.0 + 0.10 * s;
   }
 }
 
@@ -385,20 +421,14 @@ class _FadeThroughTransition extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([animation, secondaryAnimation]),
-      builder: (context, _) {
-        final a = animation.value;
-        final s = secondaryAnimation.value;
-        final enter = ((a - 0.3) / 0.7).clamp(0.0, 1.0);
-        final exit = (1 - s / 0.3).clamp(0.0, 1.0);
-        final opacity = (a < 1 ? enter : exit).clamp(0.0, 1.0);
-        final scale = a < 1 ? 0.92 + 0.08 * a : 1.0;
-        return Opacity(
-          opacity: opacity,
-          child: Transform.scale(scale: scale, child: child),
-        );
-      },
+    // 0.92 + 0.08a equals 1.0 at a == 1, so the piecewise spec collapses to a
+    // plain tween — animated at the render-object level, like the fade.
+    return FadeTransition(
+      opacity: _EnterExitFade(animation, secondaryAnimation),
+      child: ScaleTransition(
+        scale: animation.drive(Tween<double>(begin: 0.92, end: 1)),
+        child: child,
+      ),
     );
   }
 }

@@ -4,43 +4,49 @@
 observable, no route graph.
 
 back_stack brings Jetpack Compose **Navigation 3**'s "you own the back stack"
-model to Flutter. There's no `go` vs `push`, no route table, no `RouterDelegate`
-ceremony. Your destinations are plain Dart types, checked by the compiler, and
-the UI just renders the list.
+model to Flutter. Destinations are plain Dart types, checked by the compiler,
+and the UI just renders the list.
 
 ```dart
-// 1. Destinations are typed objects — arguments are real, checked fields.
+// Destinations are typed objects — arguments are real, checked fields.
 abstract class AppKey extends NavKey { const AppKey(); }
 class Home    extends AppKey { const Home(); }
 class Product extends AppKey { const Product(this.id); final int id; }
 
-// 2. Map each destination to its screen.
+// One line per screen.
 final entries = NavEntries<AppKey>()
   ..on<Home>((context, key) => const HomeScreen())
   ..on<Product>((context, key) => ProductScreen(id: key.id));
 
-// 3. The back stack is a list you own. NavDisplay watches it and follows.
+// The back stack is a list you own.
 final stack = NavStack<AppKey>.of(const Home());
 
-NavDisplay<AppKey>(stack: stack, builder: entries.call);
-
-// Navigate by changing the list:
-stack.push(const Product(42));    // add
-stack.pop();                      // remove
-stack.replaceAll([const Home()]); // reset the flow (e.g. after login)
+void main() => runApp(BackStackApp<AppKey>(stack: stack, entries: entries));
 ```
 
-System back, the Android predictive-back gesture, and the hardware back button
-all flow into the list automatically — you never wire that up.
+That's a **complete app**. Navigate by changing the list — from anywhere:
 
-## Why
+```dart
+stack.push(const Product(42));    // forward
+stack.pop();                      // back
+stack.replaceAll([const Home()]); // reset a flow (e.g. after login)
+```
 
-| Common pain (go_router / Navigator 2.0) | back_stack |
+System back, predictive back, and the hardware button already flow into the
+list. Everything else is **one parameter** on `BackStackApp` — the wiring is
+internal:
+
+| You want | You pass |
 | --- | --- |
-| `go` vs `push` confusion; differs web vs mobile | **One operation: mutate the list.** |
-| `extra` is `Object?` — not type-safe | **Typed destinations**, compiler-checked args. |
-| Back stack is a black box | **`stack.keys` is plain, observable data.** |
-| Redirect loops (`/login → /login → …`) | **`redirect` is a pure function**, applied once. Loop-proof. |
+| Deep links, web URLs, shareable links | `links:` — one [NavLinks table](/deep-links) |
+| Restoration across process death | already on with `links:` — see [Restoration](/restoration) |
+| Async link resolution ("does this doc exist?") | `onLinkAsync:` |
+| Links from a native plugin (`app_links`) | `initialLink:` / `linkStream:` |
+| Persistent chrome around the navigator | `shell:` |
+| Bottom tabs with per-tab history | the sibling widget, [BackStackTabsApp](/adaptive-and-tabs) |
+
+And because the stack is plain data, testing is `stack.push(...)` then
+`expect(stack.keys, [...])` — no harness, no mocks.
 
 ## Next
 

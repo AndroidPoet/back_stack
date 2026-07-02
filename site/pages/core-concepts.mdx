@@ -48,7 +48,9 @@ screen.
 
 - An exhaustive `switch (key)` — the compiler flags a destination you forgot.
 - A `NavEntries<K>` map (`..on<Home>(...)`) — registers destinations across
-  feature files; hand `entries.call` to `NavDisplay(builder:)`.
+  feature files; pass it directly (`BackStackApp(entries: entries)` or
+  `NavDisplay(entries: entries)`). An entry can also carry its own
+  [dialog, sheet or transition](/dialogs-and-transitions) via `on<T>(page: …)`.
 
 ## Results
 

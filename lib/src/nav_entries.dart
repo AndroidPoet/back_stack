@@ -5,8 +5,9 @@ import 'package:flutter/widgets.dart';
 /// `entryProvider { entry<T> { ... } }`, in Flutter.
 ///
 /// Instead of one big `switch` in [NavDisplay.builder], register each
-/// destination's screen by type. A [NavEntries] *is* a `NavWidgetBuilder` (it
-/// defines [call]), so hand it straight to `NavDisplay(builder: entries)`.
+/// destination's screen by type. Hand the registry to the display directly
+/// (`NavDisplay(entries: entries)`) — or, since a [NavEntries] *is* a
+/// `NavWidgetBuilder` (it defines [call]), pass `builder: entries.call`.
 /// Because registration is just method calls, feature modules can each
 /// contribute their own entries into one shared instance — the builder no
 /// longer has to live in a single file:
@@ -24,7 +25,19 @@ import 'package:flutter/widgets.dart';
 /// final entries = NavEntries<AppKey>();
 /// registerHome(entries);
 /// registerShop(entries);
-/// NavDisplay<AppKey>(stack: stack, builder: entries.call);
+/// NavDisplay<AppKey>(stack: stack, entries: entries);
+/// ```
+///
+/// A destination can also carry **its own presentation** — a dialog, a sheet,
+/// a custom transition — without a `pageBuilder` switch and without mixing
+/// `NavPage` into the domain key:
+///
+/// ```dart
+/// entries.on<ConfirmDelete>(
+///   (context, key) => const ConfirmDeleteContent(),
+///   page: (context, key, child, pageKey) =>
+///       DialogPage<void>(key: pageKey, builder: (_) => child),
+/// );
 /// ```
 ///
 /// Trade-off vs a `switch`: a `switch` over a sealed type is checked for
@@ -39,11 +52,42 @@ import 'package:flutter/widgets.dart';
 /// `Product()` pattern would). Register each concrete destination type you push.
 class NavEntries<K extends NavKey> {
   final Map<Type, Widget Function(BuildContext context, K key)> _builders = {};
+  final Map<
+    Type,
+    Page<dynamic> Function(
+      BuildContext context,
+      K key,
+      Widget child,
+      LocalKey pageKey,
+    )
+  >
+  _pages = {};
 
-  /// Register the screen for destination type [T]. Called for its side effect;
-  /// returns `this` so registrations can be chained with `..`.
-  void on<T extends K>(Widget Function(BuildContext context, T key) build) {
+  /// Register the screen for destination type [T]. Called for its side effect
+  /// (it returns `void`); chain registrations with the `..` cascade.
+  ///
+  /// Pass [page] to give this destination its own presentation: it receives the
+  /// built (and decorator-wrapped) screen as `child` and returns the [Page]
+  /// that shows it — `DialogPage`, `SheetPage`, a `TransitionPage`, anything.
+  /// The returned page must use the supplied `pageKey` as its `key`. Omit
+  /// [page] for the platform default.
+  void on<T extends K>(
+    Widget Function(BuildContext context, T key) build, {
+    Page<dynamic> Function(
+      BuildContext context,
+      T key,
+      Widget child,
+      LocalKey pageKey,
+    )?
+    page,
+  }) {
     _builders[T] = (context, key) => build(context, key as T);
+    if (page != null) {
+      _pages[T] = (context, key, child, pageKey) =>
+          page(context, key as T, child, pageKey);
+    } else {
+      _pages.remove(T);
+    }
   }
 
   /// Whether an entry is registered for type [T].
@@ -65,4 +109,14 @@ class NavEntries<K extends NavKey> {
     }
     return build(context, key);
   }
+
+  /// The page registered for [key]'s type via `on<T>(page: …)`, built around
+  /// [child] — or null when the type has no custom presentation. `NavDisplay`
+  /// consults this when given the registry via its `entries` parameter.
+  Page<dynamic>? pageFor(
+    BuildContext context,
+    K key,
+    Widget child,
+    LocalKey pageKey,
+  ) => _pages[key.runtimeType]?.call(context, key, child, pageKey);
 }

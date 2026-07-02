@@ -1,51 +1,62 @@
-# Deep links
+# Deep links & web URLs
 
-The whole deep-link setup is one widget and one function. `BackStackApp` bundles
-the `MaterialApp.router` + delegate + parser wiring; you write `onLink`, mapping
-an incoming `Uri` to the stack it should show.
-
-```dart
-void main() => runApp(
-  BackStackApp<AppKey>(
-    stack: NavStack.of(const Home()),
-    builder: entries.call,
-    onLink: (uri) => switch (uri.pathSegments) {
-      ['product', final id] => [const Home(), Product(int.parse(id))],
-      _                     => [const Home()],
-    },
-  ),
-);
-```
-
-You decide what a link materializes — return `[Home(), Product(42)]` so Back
-still goes Home, or just `[Product(42)]` to replace. That fixes the classic
-"a deep link nukes my whole stack" problem.
-
-`onLink` may parse optimistically: if it throws or returns empty,
-`onLinkFallback` (or `/`) is shown instead of crashing. There's no `errorBuilder`
-to write — in-app navigation is typed and can't reach an unknown screen.
-
-## Web address bar
-
-Pass `toLink` to project the stack back onto the URL:
+Declare each URL **once**, in a `NavLinks` table — both directions at the same
+time. Deep links, the address bar, browser back/forward, shareable links, and
+[state restoration](/restoration) all derive from this one table, so the two
+directions can never drift apart:
 
 ```dart
-BackStackApp<AppKey>(
-  // ...
-  toLink: (stack) => switch (stack.last) {
-    Product(:final id) => Uri(path: '/product/$id'),
-    _                  => Uri(path: '/'),
-  },
-);
+final links = NavLinks<AppKey>()
+  ..on<Home>('/', decode: (m) => const Home())
+  ..on<Product>('/products/:id',
+      decode: (m) => Product(m.integer('id')!),
+      encode: (key) => {'id': key.id},
+      parents: (key) => const [Home()])   // Back from a deep link goes Home
+  ..on<Search>('/search',
+      decode: (m) => Search(m.str('q') ?? ''),
+      encode: (key) => {'q': key.q})      // not in the pattern → query param
+  ..notFound((uri) => const [Home(), NotFoundScreen()]);
+
+BackStackApp<AppKey>(stack: stack, entries: entries, links: links);
 ```
 
-## Async links from native
+- **`:id`** matches one path segment. `decode` reads it typed off the
+  `NavMatch`: `m.str`, `m.integer`, `m.number`, `m.boolean` — all null-safe. A
+  throwing `decode` means "not mine after all" and the next pattern is tried,
+  so `Product(m.integer('id')!)` *is* the whole "numeric ids only" rule.
+- **`parents:`** is the layer-vs-replace choice, per destination: the stack
+  placed *under* the key when a link lands on it. Omit it and the link replaces
+  the stack with just that screen.
+- **Query parameters**: `encode` returns one flat map — values named in the
+  pattern fill its slots, every leftover entry becomes a query parameter.
+  `decode` reads them with the same `m.str('q')`.
+- **`*rest`** — a trailing catch-all matching zero or more segments, read via
+  `m.rest`: `..on<Doc>('/docs/*path', decode: (m) => Doc(m.rest.join('/')))`.
+- **`notFound`** is your 404: malformed and unknown links land on that stack,
+  never a crash.
+- **`links.linkFor(const Product(42))`** returns the shareable URL for a key.
+
+It's still not a route table that owns navigation — it only translates, and
+feature modules can each register their own entries into one shared instance.
+
+## Async resolution
+
+Need to *fetch* before deciding what a link shows? Add `onLinkAsync` — return
+the stack to show, or `null` to fall through to `links`. Race-safe: a newer
+link supersedes an in-flight one, and errors fall through to the sync mapping.
+
+```dart
+BackStackApp<AppKey>(..., links: links,
+  onLinkAsync: (uri) async =>
+      await docExists(uri) ? null : const [Home(), NotFoundScreen()]);
+```
+
+## Links from native plugins
 
 The platform hands back_stack the launch URL and the standard app links it
-resolves itself. Links that arrive **while the app runs** — a custom scheme, a
-Firebase Dynamic Link, a warm `app_links` link — come from a native plugin as a
-`Stream<Uri>`. Pass it as `linkStream` and every emission runs through the same
-`onLink`.
+resolves itself. Custom-scheme links, Firebase Dynamic Links, and warm
+`app_links` links come from a native plugin — pass them in and every `Uri`
+flows through the same table:
 
 ```dart
 final appLinks = AppLinks(); // create EARLY — see the ordering note below
@@ -65,25 +76,41 @@ URI to its first listener *only if* the `AppLinks()` singleton exists when the O
 delivers it. Create it early — a top-level `final` or in `main()` — not lazily in
 a widget, or the first link is gone. To not depend on that at all, also pass
 `initialLink: appLinks.getInitialLink()`; back_stack awaits it and applies the
-launch link through the same `onLink`.
+launch link through the same mapping.
 </Callout>
 
-## Typed URL sugar
+## Full control
 
-`NavPath` makes `onLink`/`toLink` terser without a route table — build absolute,
-encoded URLs and read path/query params without `int.parse` throwing:
+Prefer to write the mapping yourself? Pass `onLink`/`toLink` closures instead
+of `links` — you decide what a link materializes (`[Home(), Product(42)]`
+layers, `[Product(42)]` replaces), and a throw or empty result falls back to
+`onLinkFallback` instead of crashing:
 
 ```dart
-// build (toLink):
-NavPath.build(['product', id]);                 // /product/42
-NavPath.build(const ['search'], query: {'q': q}); // /search?q=shoes
-
-// read (onLink):
-final p = NavPath(uri);
-p.segInt(1);        // path segment as int, or null
-p.str('q');         // query param, or null
-p.integer('page');  // query param as int, or null
+BackStackApp<AppKey>(
+  stack: stack,
+  entries: entries,
+  onLink: (uri) => switch (uri.pathSegments) {
+    ['product', final id] => [const Home(), Product(int.parse(id))],
+    _                     => [const Home()],
+  },
+  toLink: (stack) => switch (stack.last) {
+    Product(:final id) => Uri(path: '/product/$id'),
+    _                  => Uri(path: '/'),
+  },
+);
 ```
 
-Dart 3 list patterns already handle path *matching* (`['product', final id] => …`),
-so `NavPath` fills in the parts they don't.
+`NavPath` keeps hand-written mappings terse — `NavPath.build(['product', id])`
+builds encoded URLs, `NavPath(uri).segInt(1)` reads segments without
+`int.parse` throwing. At the lowest level, a `NavStackCodec` (which `NavLinks`
+implements) is the `Uri ⇄ List<NavKey>` seam for driving
+`NavStackRouterDelegate` directly.
+
+## Drift is caught for you
+
+In debug builds the router verifies encode∘decode is idempotent for every URL
+it shows and reports a drifted codec the moment it's introduced — the classic
+hand-written `onLink`/`toLink` bug, caught at development time. A `NavLinks`
+table can't drift (one entry declares both directions), so this mainly guards
+the full-control path.

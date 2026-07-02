@@ -1,6 +1,6 @@
 name: back_stack
 description: "You own the back stack. Navigation is a list you push and pop — type-safe, observable, no route graph."
-version: 0.3.0
+version: 0.4.0
 repository: https://github.com/AndroidPoet/back_stack
 homepage: https://github.com/AndroidPoet/back_stack
 issue_tracker: https://github.com/AndroidPoet/back_stack/issues

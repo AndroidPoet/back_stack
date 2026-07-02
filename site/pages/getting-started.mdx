@@ -4,13 +4,13 @@
 
 ```yaml
 dependencies:
-  back_stack: ^0.3.0
+  back_stack: ^0.4.0
 ```
 
-## Your first stack
+## Hello world
 
-Three pieces: typed destinations, a builder that maps each to a screen, and the
-stack itself.
+Three pieces: typed destinations, a screen per destination, and the stack.
+`BackStackApp` renders it — that's the whole app:
 
 ```dart
 import 'package:back_stack/back_stack.dart';
@@ -21,39 +21,33 @@ abstract class AppKey extends NavKey { const AppKey(); }
 class Home    extends AppKey { const Home(); }
 class Product extends AppKey { const Product(this.id); final int id; }
 
-void main() => runApp(const MyApp());
+final entries = NavEntries<AppKey>()
+  ..on<Home>((context, key) => const HomeScreen())
+  ..on<Product>((context, key) => ProductScreen(id: key.id));
 
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
+final stack = NavStack<AppKey>.of(const Home());
 
-class _MyAppState extends State<MyApp> {
-  final stack = NavStack<AppKey>.of(const Home());
+void main() => runApp(BackStackApp<AppKey>(stack: stack, entries: entries));
+```
 
-  final entries = NavEntries<AppKey>()
-    ..on<Home>((context, key) => const HomeScreen())
-    ..on<Product>((context, key) => ProductScreen(id: key.id));
+System back, the Android predictive-back gesture, and the hardware button
+already flow into the stack — nothing to wire.
 
-  @override
-  void dispose() {
-    stack.dispose();
-    super.dispose();
-  }
+## Navigate by changing the list
 
-  @override
-  Widget build(BuildContext context) => MaterialApp(
-    home: NavDisplay<AppKey>(stack: stack, builder: entries.call),
-  );
-}
+The stack is a `List` you own. There's no `go` vs `push` — one operation,
+mutate the list:
+
+```dart
+stack.push(const Product(42));    // forward
+stack.pop();                      // back
+stack.replaceAll([const Home()]); // reset a flow (e.g. after login)
 ```
 
 ## Navigate from a screen
 
-`NavDisplay` provides the stack to everything below it. Reach it with
-`BackStack.of<AppKey>(context)` — pass the key type so the lookup finds *your*
-stack:
+Every screen can reach the stack with `BackStack.of<AppKey>(context)` — pass
+the key type so the lookup finds *your* stack:
 
 ```dart
 onTap: () => BackStack.of<AppKey>(context).push(const Product(42)),
@@ -62,8 +56,22 @@ onTap: () => BackStack.of<AppKey>(context).push(const Product(42)),
 `of` doesn't rebuild on change (right for event handlers). Pass `listen: true`
 when a widget should rebuild when the stack changes.
 
+## Without BackStackApp
+
+`BackStackApp` is convenience, not magic. `NavDisplay` is a plain widget that
+renders a stack — host it inside your own `MaterialApp`, or anywhere in an
+existing app:
+
+```dart
+MaterialApp(home: NavDisplay<AppKey>(stack: stack, entries: entries));
+```
+
+You then wire the Router yourself if you want URLs — see
+[Deep links → Full control](/deep-links#full-control). Whoever creates a stack
+disposes it (`stack.dispose()`); `BackStackApp` leaves ownership with you.
+
 ## Where to next
 
 - [Core concepts](/core-concepts) — the model end to end.
-- [Deep links](/deep-links) — map URLs onto the stack in one function.
-- [Auth gating](/auth-gating) — redirects and async guards, loop-proof.
+- [Deep links](/deep-links) — the URL table, one entry per destination.
+- [Auth gating](/auth-gating) — redirects and async gates, loop-proof.

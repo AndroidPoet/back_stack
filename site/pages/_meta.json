@@ -3,9 +3,10 @@
   "getting-started": "Getting started",
   "core-concepts": "Core concepts",
   "deep-links": "Deep links",
+  "restoration": "State restoration",
   "auth-gating": "Auth gating",
-  "adaptive-and-tabs": "Adaptive & tabs",
-  "transitions": "Transitions",
+  "adaptive-and-tabs": "Tabs & adaptive",
+  "dialogs-and-transitions": "Dialogs & transitions",
   "analytics": "Analytics",
   "migrating-from-go-router": "Migrating from go_router",
   "demo": {

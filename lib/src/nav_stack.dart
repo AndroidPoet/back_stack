@@ -61,6 +61,20 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
   /// retained.
   final Map<int, Completer<Object?>> _pending = {};
 
+  /// Debug-only: per awaiting entry, "is this value a valid result?" — so a
+  /// mistyped `pop(result)` is caught at the pop call site. Empty in release.
+  final Map<int, bool Function(Object? value)> _resultChecks = {};
+
+  bool _checkResultType(int id, Object? result) {
+    final check = _resultChecks[id];
+    if (check == null || check(result)) return true;
+    throw FlutterError(
+      'pop($result) delivered a ${result.runtimeType} to a pushForResult '
+      'awaiter that expects a different type. Make the popping screen return '
+      'the type the pushForResult<T>() call site awaits.',
+    );
+  }
+
   /// Optional veto run before every change. Return `false` to block it.
   ///
   /// A pure function over the proposed stack, not a redirect engine that can
@@ -92,8 +106,15 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
   /// Android system back gesture, also put a `PopScope` on the screen — that's
   /// where the framework asks before it removes the route. Use this for a
   /// synchronous "are you sure" gate (e.g. an unsaved-changes flag); for an
-  /// async confirm dialog, use `PopScope` + `onPopInvokedWithResult`.
+  /// async confirm dialog, use [popGuardAsync] + [tryPop], or `ConfirmPopScope`
+  /// on the screen itself.
   bool Function(K top)? popGuard;
+
+  /// Optional **async** veto consulted by [tryPop]: resolve `false` to keep the
+  /// top screen. This is where an "are you sure?" dialog or a save-before-leave
+  /// call lives when the pop is programmatic. [pop] itself stays synchronous
+  /// and does not consult this — use [tryPop] for the async path.
+  Future<bool> Function(K top)? popGuardAsync;
 
   Listenable? _refresh;
 
@@ -162,6 +183,12 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
     final entry = NavEntry<K>(key, _nextId++);
     final completer = Completer<Object?>();
     _pending[entry.id] = completer;
+    assert(() {
+      // Debug-only: remember what T was, so a mistyped `pop(result)` fails at
+      // the pop call site instead of as a CastError inside the await.
+      _resultChecks[entry.id] = (value) => value is T?;
+      return true;
+    }(), '');
     _commit([..._entries, entry]);
     return completer.future.then((value) => value as T?);
   }
@@ -174,6 +201,7 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
   bool pop([Object? result]) {
     if (!canPop) return false;
     if (popGuard != null && !popGuard!(current)) return false;
+    assert(_checkResultType(_entries.last.id, result), '');
     return _commit(
       _entries.sublist(0, _entries.length - 1),
       poppedId: _entries.last.id,
@@ -181,12 +209,33 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
     );
   }
 
+  /// Like [pop], but consults [popGuardAsync] first (then [popGuard], inside
+  /// [pop]). Resolves with whether the pop landed. Race-safe: if the stack
+  /// changes while the guard is being awaited, nothing is popped — the guard's
+  /// answer applied to a screen that is no longer on top.
+  Future<bool> tryPop([Object? result]) async {
+    if (!canPop) return false;
+    final top = _entries.last;
+    final guard = popGuardAsync;
+    if (guard != null && !await guard(top.key)) return false;
+    if (_entries.isEmpty || _entries.last.id != top.id) return false;
+    return pop(result);
+  }
+
   /// Replace the top destination in place (no back step recorded).
-  void replaceTop(K key) {
-    _commit([
-      ..._entries.sublist(0, _entries.length - 1),
-      NavEntry<K>(key, _nextId++),
-    ]);
+  ///
+  /// If the replaced screen was pushed with [pushForResult], its awaiter
+  /// completes with [result] (null by default) — so "replace the picker with a
+  /// confirmation screen" still delivers the picked value.
+  void replaceTop(K key, {Object? result}) {
+    if (result != null) {
+      assert(_checkResultType(_entries.last.id, result), '');
+    }
+    _commit(
+      [..._entries.sublist(0, _entries.length - 1), NavEntry<K>(key, _nextId++)],
+      poppedId: _entries.last.id,
+      poppedResult: result,
+    );
   }
 
   /// Replace the whole stack. Use this for "reset to a fresh flow" — e.g.
@@ -226,18 +275,23 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
 
   /// Push [key] — unless an equal destination is already on the stack, in which
   /// case bring that existing one to the top instead of adding a duplicate.
+  /// Returns whether the stack changed (false when an equal destination was
+  /// already on top — which also makes this the double-tap-proof push: a
+  /// second tap that fires before the first transition lands is a no-op).
   ///
   /// Equality is [NavKey] `==` (mix in [EquatableNavKey] for value equality),
   /// unless you pass [isSame]. Handy for a deep link or a menu item that
   /// shouldn't pile up copies of the same screen.
-  void pushOrMoveToTop(K key, {bool Function(K existing, K incoming)? isSame}) {
+  bool pushOrMoveToTop(K key, {bool Function(K existing, K incoming)? isSame}) {
     final match = isSame ?? (existing, incoming) => existing == incoming;
     final i = _entries.lastIndexWhere((e) => match(e.key, key));
     if (i == -1) {
-      push(key);
-    } else if (i != _entries.length - 1) {
-      _commit(_entries.sublist(0, i + 1));
+      return _commit([..._entries, NavEntry<K>(key, _nextId++)]);
     }
+    if (i != _entries.length - 1) {
+      return _commit(_entries.sublist(0, i + 1));
+    }
+    return false;
   }
 
   /// Push several destinations at once, in order, as a single change — one
@@ -251,10 +305,13 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
   }
 
   /// Pop everything above the root, landing back on the first entry. Returns
-  /// whether anything was popped (false if already at the root). The root keeps
-  /// its [State] — this is the "home button" / re-tap-the-tab gesture.
+  /// whether anything was popped (false if already at the root, or if
+  /// [popGuard] vetoes leaving the current top — an unsaved form keeps its
+  /// protection even against a bulk pop). The root keeps its [State] — this is
+  /// the "home button" / re-tap-the-tab gesture.
   bool popToRoot() {
     if (_entries.length <= 1) return false;
+    if (popGuard != null && !popGuard!(current)) return false;
     return _commit(_entries.sublist(0, 1));
   }
 
@@ -286,6 +343,13 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
   /// Called by [NavDisplay] when the framework removes a page itself (system
   /// back gesture, predictive back, or an imperative pop animation finishing).
   /// Keeps the list in sync without the developer wiring anything.
+  ///
+  /// Deliberately does **not** run [redirect]/[guard]: by the time this fires,
+  /// the route is already gone from the [Navigator] — vetoing here would desync
+  /// the list from what's on screen. To intercept the system back gesture, use
+  /// `PopScope`/`ConfirmPopScope` on the screen (that's where the framework
+  /// asks *before* removing the route); [redirect] re-runs on the next
+  /// programmatic change or [refreshListenable] tick.
   void syncRemoved(int id) {
     final i = _entries.indexWhere((e) => e.id == id);
     if (i == -1) return; // already gone (we popped it ourselves) — no-op.
@@ -339,9 +403,11 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
     }
     // An empty stack has no screen to show and would leave [NavDisplay] with an
     // empty Pages list (a Navigator assertion). The asserts above catch a bad
-    // `redirect`/`replaceAll` in debug; in release, refuse the change instead of
-    // crashing — the current stack stays as-is. (A no-op `pop()` on the last
-    // entry is handled by its own `canPop` check, so this only trips on misuse.)
+    // `redirect` (its empty result is ignored — the un-redirected proposal
+    // proceeds) and a bad `replaceAll`; in release, an empty *resolved* stack
+    // refuses the whole change instead of crashing — the current stack stays
+    // as-is. (A no-op `pop()` on the last entry is handled by its own `canPop`
+    // check, so this only trips on misuse.)
     if (resolved.isEmpty) {
       _prunePending();
       return false;
@@ -390,6 +456,7 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
   }
 
   void _completeResult(int id, Object? result) {
+    _resultChecks.remove(id);
     final completer = _pending.remove(id);
     if (completer != null && !completer.isCompleted) completer.complete(result);
   }
@@ -402,6 +469,7 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
       if (!completer.isCompleted) completer.complete(null);
     }
     _pending.clear();
+    _resultChecks.clear();
     super.dispose();
   }
 

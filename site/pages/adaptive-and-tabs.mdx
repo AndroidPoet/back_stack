@@ -1,4 +1,56 @@
-# Adaptive layouts & tabs
+# Tabs & adaptive layouts
+
+## Tabs — one widget
+
+`BackStackTabsApp` is the tabbed app, bundled: bottom navigation with a
+persistent back stack per tab, system back handled innermost-first, re-tapping
+the active tab pops it to root.
+
+```dart
+void main() => runApp(
+  BackStackTabsApp<AppKey>(
+    tabs: [
+      NavStack<AppKey>.of(const Feed()),
+      NavStack<AppKey>.of(const Search()),
+      NavStack<AppKey>.of(const Profile()),
+    ],
+    entries: entries,
+    destinations: const [
+      NavigationDestination(icon: Icon(Icons.home), label: 'Feed'),
+      NavigationDestination(icon: Icon(Icons.search), label: 'Search'),
+      NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
+    ],
+    links: links, // optional
+  ),
+);
+```
+
+Push deep in one tab, switch away and back — the history is intact. With
+`links:` set, a deep link lands in the right tab automatically (the tab is
+inferred from the decoded stack's root destination, matched against each tab's
+initial root), and every tab's stack **plus the active tab** survive process
+death — see [Restoration](/restoration). `onLinkAsync`,
+`initialLink`/`linkStream`, `lazy:` tabs, `initialIndex:` and
+`popToRootOnReselect:` all work the same as on `BackStackApp`.
+
+## Your own chrome
+
+Want a rail, a drawer, or a custom bar? Pass `shell:` instead of
+`destinations:` — it receives the `MultiNavStack` host:
+
+```dart
+BackStackTabsApp<AppKey>(
+  tabs: [...],
+  entries: entries,
+  shell: (context, host, child) => Scaffold(
+    body: Row(children: [MyRail(host: host), Expanded(child: child)]),
+  ),
+);
+```
+
+Drive selection from `host.index` / `host.select(i)`, and reach the host from
+any screen with `MultiBackStack.of<AppKey>(context)` — e.g. to switch tabs from
+deep inside one.
 
 ## List-detail from one stack
 
@@ -20,19 +72,18 @@ Each pane keeps its `State` across the breakpoint — every entry gets a stable
 columns, or your own layout, drop to the general `NavSceneHost` + `NavSceneStrategy`
 engine over the same one stack.
 
-## Bottom nav with per-tab history
+## Full control
 
-`MultiNavStack` keeps one back stack per tab, persistent across switches:
+`BackStackTabsApp` is built from public pieces you can wire yourself:
 
 ```dart
-final host = MultiNavStack<TabKey>([
+final host = MultiNavStack<AppKey>([
   NavStack.of(const Feed()),
   NavStack.of(const Search()),
-  NavStack.of(const Profile()),
 ]);
 
 Scaffold(
-  body: MultiNavDisplay<TabKey>(host: host, builder: screenFor),
+  body: MultiNavDisplay<AppKey>(host: host, entries: entries),
   bottomNavigationBar: ListenableBuilder(
     listenable: host,
     builder: (context, _) => NavigationBar(
@@ -44,10 +95,9 @@ Scaffold(
 );
 ```
 
-Push deep in one tab, switch away and back — the history is intact. System back
-pops the active tab, then falls back to the first. A deep screen switches tabs
-with `MultiBackStack.of<TabKey>(context).select(i)`.
-
-For URL sync, deep links and browser back on a tabbed app, drive it from the
-Router with `MultiNavStackRouterDelegate` + a `MultiNavStackCodec`. To survive
-process death, wrap it in `RestorableMultiNavStack`.
+For URL sync, deep links and browser back at this level, drive it from the
+Router with `MultiNavStackRouterDelegate` + a `MultiNavStackCodec`
+(`Uri ⇄ (tab, stack)`); to survive process death, wrap it in
+`RestorableMultiNavStack`. On `BackStackTabsApp` the same full control is the
+`onLink:`/`toLink:` pair over `MultiNavLocation` — which tab plus the stack to
+show in it.

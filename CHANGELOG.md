@@ -1,27 +1,114 @@
-## Unreleased
+## 0.4.0
 
-- **`NavStackObserver<K>` — typed navigation events.** A stack-level observer that
-  fires with *your* `NavKey`s (not framework `Route`s): `onScreen` (the visible top
-  changed — your `screen_view` signal), `onPush`, `onPop`. Built by diffing entry
-  identities, so a `replaceAll` reports each added/removed screen once and reconciled
-  survivors don't re-fire. The clean analytics/logging seam without reverse-engineering
-  route names.
-- **`NavPath` — typed deep-link sugar.** Terser `onLink`/`toLink` without a route
-  table: `NavPath.build(['products', id], query: {...})` builds an absolute, encoded
-  URL, and `NavPath(uri)` reads path segments (`seg`/`segInt`) and query params
-  (`str`/`integer`/`number`/`boolean`) with no `int.parse` throws to guard. Pairs with
-  Dart 3 list patterns, which already handle path matching.
-- **Ergonomic stack ops** on `NavStack`: `pushAll` (several destinations in one
-  change), `popToRoot` (unwind to the first entry, keeping its `State`), and
-  `removeWhere` (drop matching entries, never emptying the stack). Sugar over the
-  list you already own.
-- **`BackStackApp.initialLink`** — hand it `AppLinks().getInitialLink()` and
-  back_stack awaits the cold-start link and applies it through the same `onLink`.
-  This is the version-independent way to survive a custom-scheme cold start
-  (rather than relying on `uriLinkStream` replaying the launch URI). Safe to use
-  alongside `linkStream`; re-applying the same link is a no-op.
-- Docs: the deep-link sections now spell out the `app_links` cold-start ordering
-  rule (create `AppLinks()` early or the launch link is lost).
+The "handled internally" release: the app shapes and URL plumbing every real
+app needs, each reduced to one parameter — plus a hardening pass over the
+core. Still zero dependencies.
+
+### One source of truth for URLs
+
+- **`NavLinks` — the URL table.** One entry per linkable destination declares
+  *both* directions at once (`'/products/:id'` ⇄ `Product`), with typed
+  parameter reads (`NavMatch`), query parameters, `*rest` catch-alls, a
+  per-destination `parents:` (the layer-vs-replace choice), and `notFound`.
+  Deep links, the web address bar, browser back/forward, shareable links
+  (`linkFor`) and state restoration all derive from the same table, so the two
+  directions can never drift apart. It's a `NavStackCodec`, so it plugs in
+  anywhere one goes — usually `BackStackApp(links: …)`. It never owns the
+  stack; back_stack still has no route graph.
+- **Round-trip drift validator.** In debug builds the router verifies
+  encode∘decode is idempotent per URL and reports a drifted codec the moment
+  it's introduced — the classic hand-written `onLink`/`toLink` bug, caught at
+  development time.
+
+### One-widget apps
+
+- **`BackStackApp` is now a true one-widget app**: `onLink` is optional
+  (`BackStackApp(stack: …, entries: …)` is a complete app), it accepts
+  `links:` and `entries:` directly, and it forwards the previously missing
+  `MaterialApp` knobs (`onGenerateTitle`, `scaffoldMessengerKey`, locale
+  callbacks, high-contrast themes, `shortcuts`/`actions`, `appBuilder`). A
+  `shell:` parameter wraps persistent chrome (side rail, overlays) around the
+  navigating area, under `MaterialApp`. Config (`onLink`/`toLink`/`builder`)
+  is read live, so hot reload and rebuilds take effect without losing
+  navigation state.
+- **`BackStackTabsApp` — the tabbed app, bundled.** Bottom navigation with a
+  persistent back stack per tab used to take up to nine hand-wired objects;
+  it's now one widget: pass `tabs:` + `destinations:` (built-in
+  `NavigationBar`, selection and re-tap-to-pop-to-root wired) or `shell:`
+  (your own chrome). Works with `links:` — the target tab is inferred from
+  the decoded stack's root — plus `onLinkAsync`, `initialLink`/`linkStream`,
+  lazy tabs, and automatic restoration of every tab's stack + the active tab.
+
+### Async everywhere
+
+- **Async link resolution** — `onLinkAsync` on both apps (and `asyncDecode`
+  on both router delegates): await a lookup before deciding what a link
+  shows. Race-safe by design: a newer link supersedes an in-flight one, and
+  errors fall through to the sync mapping.
+- **Async pop** — `NavStack.popGuardAsync` + `tryPop()`: an "are you sure?"
+  dialog or save-before-leave call for programmatic pops, race-safe (if the
+  stack changes while the guard is deciding, nothing is popped).
+- **`AsyncRedirect.attach(stack)`** wires `redirect` + `refreshListenable` in
+  one call — forgetting the second half used to make gating silently hang.
+  `detach()` undoes it; `dispose()` auto-detaches. Also hardened: disposing
+  mid-check no longer crashes, and the decision cache is bounded
+  (`cacheSize`) and keyed by real element-wise equality instead of a raw
+  hash.
+
+### Full-stack restoration, automatic
+
+- With `links:` set, the **entire typed stack** (and for tabs: every tab's
+  stack + the active tab) survives process death — serialized through the
+  same URL table, unregistered keys skipped, corrupt snapshots discarded.
+  `restoreWith:` accepts a `NavKeyCodec` for destinations without URLs. A
+  cold-start deep link still wins over the snapshot unless the snapshot is
+  just the deeper history of the same location. (`RestorableBackStack` /
+  `RestorableMultiNavStack` remain for Router-free setups.)
+
+### Per-destination presentation
+
+- **`NavEntries.on<T>(page: …)`** — a destination can carry its own dialog,
+  sheet, or transition, with decorators still applied: no global
+  `pageBuilder` switch and no mixin on domain keys. Displays and delegates
+  accept the registry directly (`entries:` as the alternative to `builder:`).
+
+### Typed navigation events, ergonomics & sugar (from the previous batch)
+
+- **`NavStackObserver<K>`** — typed `onScreen`/`onPush`/`onPop` in your keys.
+- **`NavPath`** — typed URL reading/building sugar for hand-written codecs.
+- **Ergonomic stack ops**: `pushAll`, `popToRoot`, `removeWhere`.
+- **`BackStackApp.initialLink`** — cold-start link, awaited and applied
+  through the same mapping.
+- `pushOrMoveToTop` now returns whether the stack changed — making it the
+  double-tap-proof push (a second tap is a no-op, not a duplicate screen).
+- `replaceTop(key, result: …)` completes the replaced screen's
+  `pushForResult` awaiter with a value.
+- `pushForResult`'s result type is checked at the `pop(result)` call site in
+  debug, instead of failing later as a cast error inside the `await`.
+
+### Fixes & hardening
+
+- `NavDisplay` page memoization survives parent rebuilds with the documented
+  `entries.call` tear-off (function equality instead of identity), and
+  `onRemoved` still fires after a builder swap.
+- `popToRoot` is one commit and respects `popGuard` on the current top; tab
+  re-select uses the same semantics (one notification, protected forms stay).
+- A deep link targeting an out-of-range tab now falls back instead of being
+  silently dropped.
+- Applying a platform route identical to the current location is a no-op
+  (protects restored deep stacks from being collapsed to their URL
+  projection).
+- `NavLinks`/link decoding never throws — including trailing slashes and
+  URLs whose percent-escapes aren't even valid UTF-8.
+- Shell chrome gets its own `Overlay` (tooltips/menus in a bottom bar work).
+- Shared-axis and fade-through transitions animate at the render-object level
+  (no per-frame widget rebuilds).
+- `BackStack.of`/`MultiBackStack.of`/`parentOf` throw real `FlutterError`s in
+  all build modes, with a "did you forget the type argument?" hint;
+  `maybeParentOf` stops walking once found; custom pages that drop the
+  supplied `pageKey` are caught by a debug assert (they would silently desync
+  system back).
+- The package archive no longer ships the 2 MB demo gif (3 MB → ~0.1 MB).
 
 ## 0.3.0
 

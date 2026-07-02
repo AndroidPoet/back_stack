@@ -1,0 +1,67 @@
+# State restoration
+
+Android kills backgrounded apps; most routers restore only the URL, so the user
+comes back to a collapsed stack. With `links:` set on `BackStackApp` (or
+`BackStackTabsApp`), the **entire typed stack** survives process death — there
+is nothing to enable:
+
+```dart
+BackStackApp<AppKey>(stack: stack, entries: entries, links: links);
+// backgrounded → killed → relaunched: the same stack comes back
+```
+
+Each destination is serialized through the same [URL table](/deep-links).
+Keys whose type isn't in the table (a dialog, a transient step) are skipped,
+not fatal. A corrupt or incompatible snapshot — say a pattern changed across an
+app update — is discarded instead of crashing on cold start. On
+`BackStackTabsApp`, every tab's stack **and the active tab** are restored.
+
+Turn it off with `restoreStack: false`.
+
+## Destinations without a URL
+
+Pass `restoreWith:` — a `NavKeyCodec` serializing each key to/from a string.
+It takes precedence over the links-derived codec, so it also covers the
+no-`links` case:
+
+```dart
+class AppKeyCodec extends NavKeyCodec<AppKey> {
+  const AppKeyCodec();
+  @override
+  String encode(AppKey key) => switch (key) {
+        Home() => 'home',
+        Draft(:final id) => 'draft:$id',
+      };
+  @override
+  AppKey decode(String data) => data.startsWith('draft:')
+      ? Draft(int.parse(data.substring(6)))
+      : const Home();
+}
+
+BackStackApp<AppKey>(..., restoreWith: const AppKeyCodec());
+```
+
+## Cold-start links win
+
+If the app is relaunched *by a deep link*, the link wins over the snapshot —
+with one refinement: when the snapshot points at the **same location** as the
+link, it's restored anyway, because it's just the deeper history of where the
+user already is.
+
+## Without the Router
+
+Not using `BackStackApp`? `RestorableBackStack` (and `RestorableMultiNavStack`
+for tabs) owns a stack and persists it, inside any restoration scope:
+
+```dart
+MaterialApp(
+  restorationScopeId: 'app',
+  home: RestorableBackStack<AppKey>(
+    restorationId: 'nav',
+    create: () => NavStack.of(const Home()),
+    codec: const AppKeyCodec(),
+    builder: (context, stack) =>
+        NavDisplay<AppKey>(stack: stack, entries: entries),
+  ),
+);
+```

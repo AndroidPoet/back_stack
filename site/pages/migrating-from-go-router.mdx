@@ -14,6 +14,7 @@ moving navigation from "describe a path" to "change a list."
 | go_router | back_stack |
 | --- | --- |
 | `GoRoute(path: '/product/:id', builder: …)` | a typed `class Product extends AppKey { final int id; }` + `..on<Product>(…)` |
+| the routes table (URL side) | a `NavLinks` table — one entry per URL, [both directions at once](/deep-links) |
 | `context.go('/product/42')` | `stack.replaceAll([Home(), Product(42)])` |
 | `context.push('/product/42')` | `stack.push(Product(42))` |
 | `context.pop()` | `stack.pop()` |
@@ -22,10 +23,10 @@ moving navigation from "describe a path" to "change a list."
 | `redirect:` (can loop) | `redirect` (pure, runs once) + `guard` |
 | async `redirect` | `AsyncRedirect` |
 | `refreshListenable:` | `stack.refreshListenable` |
-| `ShellRoute` / `StatefulShellRoute` | `MultiNavStack` |
-| `errorBuilder:` / "no route found" | no such class — only the deep-link boundary is untyped (`onLinkFallback`) |
+| `ShellRoute` / `StatefulShellRoute` | `BackStackTabsApp` (one widget) |
+| `errorBuilder:` / "no route found" | `NavLinks.notFound` — only the deep-link boundary is untyped |
 | `GoRouter.of(context)` | `BackStack.of<AppKey>(context)` |
-| `routerConfig` + `MaterialApp.router` | `BackStackApp(onLink: …)` |
+| `routerConfig` + `MaterialApp.router` | `BackStackApp(stack: …, entries: …)` |
 
 ## Routes → typed destinations
 

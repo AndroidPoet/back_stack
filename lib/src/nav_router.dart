@@ -1,4 +1,5 @@
 import 'package:back_stack/src/nav_display.dart';
+import 'package:back_stack/src/nav_entries.dart';
 import 'package:back_stack/src/nav_key.dart';
 import 'package:back_stack/src/nav_multi.dart';
 import 'package:back_stack/src/nav_stack.dart';
@@ -141,15 +142,21 @@ class _CallbackNavStackCodec<K extends NavKey> extends NavStackCodec<K> {
 class NavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
     with ChangeNotifier, PopNavigatorRouterDelegateMixin<Uri> {
   /// Wires [stack] to the platform Router, translating via [codec] and
-  /// rendering each destination with [builder].
+  /// rendering each destination with [builder] (or [entries]).
   NavStackRouterDelegate({
     required this.stack,
     required this.codec,
-    required this.builder,
+    this.builder,
+    this.entries,
+    this.asyncDecode,
+    this.shell,
     this.pageBuilder,
     this.observers = const [],
     this.decorators = const [],
-  }) {
+  }) : assert(
+         (builder != null) ^ (entries != null),
+         'Provide exactly one of builder / entries.',
+       ) {
     // URL follows the stack: when the list changes, tell the Router to re-read
     // currentConfiguration.
     stack.addListener(notifyListeners);
@@ -162,7 +169,27 @@ class NavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   final NavStackCodec<K> codec;
 
   /// Maps a destination to its screen. See [NavDisplay.builder].
-  final NavWidgetBuilder<K> builder;
+  final NavWidgetBuilder<K>? builder;
+
+  /// The destination registry, as an alternative to [builder]. See
+  /// [NavDisplay.entries].
+  final NavEntries<K>? entries;
+
+  /// Optional **async** link resolution, tried before [codec]'s sync decode for
+  /// every incoming link: await a lookup ("does this document exist? who may
+  /// see it?") and return the stack to show — or `null` to fall through to the
+  /// sync mapping. Race-safe: a newer link supersedes an in-flight resolution
+  /// (the stale result is dropped), and an error just falls through. The stack
+  /// stays where it is while the future runs.
+  final Future<List<K>?> Function(Uri uri)? asyncDecode;
+
+  /// Optional chrome wrapped **around** the display — a persistent side rail,
+  /// an app frame — that lives under `MaterialApp` (themes, localization, the
+  /// restoration scope) but outside the navigating area. It receives the
+  /// [stack] and the built display; return the display wrapped however you
+  /// like.
+  final Widget Function(BuildContext context, NavStack<K> stack, Widget child)?
+  shell;
 
   /// Optional custom page/transition. See [NavDisplay.pageBuilder].
   final NavPageBuilder<K>? pageBuilder;
@@ -180,24 +207,85 @@ class NavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   @override
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+  /// Bumped by every link application so an in-flight [asyncDecode] result
+  /// that has been superseded is dropped instead of clobbering a newer link.
+  int _linkGeneration = 0;
+
+  /// Debug-only: URI strings already round-trip-validated, so the check runs
+  /// once per distinct URL instead of on every rebuild. Reset when it grows
+  /// large so a long session with many distinct URLs stays bounded.
+  final Set<String> _validatedLinks = {};
+
+  /// Set by [dispose]: an in-flight [handleLinkAsync] must not apply its
+  /// result through a delegate that has since been detached and disposed.
+  bool _disposed = false;
+
   @override
-  Uri get currentConfiguration => codec.encode(stack.keys);
+  Uri get currentConfiguration {
+    final uri = codec.encode(stack.keys);
+    assert(() {
+      _debugValidateRoundTrip(uri);
+      return true;
+    }(), '');
+    return uri;
+  }
+
+  /// Encode → decode → encode must be idempotent, or the two directions of the
+  /// codec have drifted apart (the classic hand-written onLink/toLink bug):
+  /// the URL shown in the address bar would decode to a place that shows a
+  /// *different* URL. Caught here, in debug, the moment it's introduced.
+  void _debugValidateRoundTrip(Uri uri) {
+    if (_validatedLinks.length >= 512) _validatedLinks.clear();
+    if (!_validatedLinks.add(uri.toString())) return;
+    try {
+      final reencoded = codec.encode(codec.decode(uri));
+      if (reencoded.toString() != uri.toString()) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            library: 'back_stack',
+            exception: FlutterError(
+              'Link round-trip drift: the stack encodes to "$uri", but '
+              'decoding that URL yields a stack that encodes to "$reencoded". '
+              'The encode/decode directions of your codec (onLink/toLink or '
+              'NavLinks table) disagree — deep links into "$uri" will not '
+              'land where the address bar says the user is.',
+            ),
+          ),
+        );
+      }
+    } on Object catch (_) {
+      // decode threw → the delegate's fallback hardening owns that case.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return NavDisplay<K>(
+    final display = NavDisplay<K>(
       stack: stack,
       navigatorKey: navigatorKey,
       builder: builder,
+      entries: entries,
       pageBuilder: pageBuilder,
       observers: observers,
       decorators: decorators,
     );
+    final wrap = shell;
+    if (wrap == null) return display;
+    // Shell chrome lives outside the Navigator, so nothing above it provides
+    // an Overlay — but Material widgets in it (tooltips, menus, autocomplete)
+    // need one. Give the shell its own, like WidgetsApp does.
+    return Overlay.wrap(child: wrap(context, stack, display));
   }
 
   @override
-  Future<void> setNewRoutePath(Uri configuration) async =>
-      handleLink(configuration);
+  Future<void> setNewRoutePath(Uri configuration) async {
+    // A platform route that already matches the current projection is a no-op.
+    // This matters after full-stack restoration: the Router replays the
+    // restored URL, and applying it would collapse the restored deep stack to
+    // just the URL's projection. Same location → keep the richer stack.
+    if (configuration == currentConfiguration) return;
+    await handleLinkAsync(configuration);
+  }
 
   /// Apply a deep link that arrived **asynchronously at runtime** to the stack —
   /// the imperative sibling of the platform-driven [setNewRoutePath].
@@ -216,10 +304,39 @@ class NavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   /// wires exactly that for you.
   ///
   /// Changing the stack updates the URL (via [currentConfiguration]) just like a
-  /// platform link, so this stays consistent with browser/web sync.
+  /// platform link, so this stays consistent with browser/web sync. When
+  /// [asyncDecode] is set, prefer [handleLinkAsync]; this sync path skips it.
   void handleLink(Uri uri) {
+    _linkGeneration++; // a sync link supersedes any in-flight async one
     final next = _decodeOrFallback(uri);
     if (next != null && next.isNotEmpty) stack.replaceAll(next);
+  }
+
+  /// [handleLink], but giving [asyncDecode] (when set) the first shot: await
+  /// it, apply its stack if it returns one, fall through to the sync [codec]
+  /// mapping if it returns `null` or throws. Every platform link
+  /// ([setNewRoutePath]) comes through here, so async link resolution is the
+  /// default behavior, not a separate code path. Without [asyncDecode] this is
+  /// exactly [handleLink].
+  Future<void> handleLinkAsync(Uri uri) async {
+    final resolve = asyncDecode;
+    if (resolve == null) return handleLink(uri);
+    final generation = ++_linkGeneration;
+    List<K>? next;
+    try {
+      next = await resolve(uri);
+    } on Object catch (_) {
+      next = null; // resolution failed — fall through to the sync mapping
+    }
+    // A newer link (sync or async) arrived while we awaited — or the delegate
+    // was swapped out and disposed: drop this one.
+    if (_disposed || generation != _linkGeneration) return;
+    if (next != null && next.isNotEmpty) {
+      stack.replaceAll(next);
+      return;
+    }
+    final fallback = _decodeOrFallback(uri);
+    if (fallback != null && fallback.isNotEmpty) stack.replaceAll(fallback);
   }
 
   /// Turn a platform URI into a stack without ever throwing. A deep link is
@@ -243,6 +360,7 @@ class NavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
 
   @override
   void dispose() {
+    _disposed = true;
     stack.removeListener(notifyListeners);
     super.dispose();
   }
@@ -377,16 +495,22 @@ class _CallbackMultiNavStackCodec<K extends NavKey>
 class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
     with ChangeNotifier {
   /// Wires [host] to the platform Router, translating via [codec] and rendering
-  /// each destination with [builder].
+  /// each destination with [builder] (or [entries]).
   MultiNavStackRouterDelegate({
     required this.host,
     required this.codec,
-    required this.builder,
+    this.builder,
+    this.entries,
+    this.asyncDecode,
+    this.shell,
     this.pageBuilder,
     this.observers = const [],
     this.decorators = const [],
     this.lazy = false,
-  }) {
+  }) : assert(
+         (builder != null) ^ (entries != null),
+         'Provide exactly one of builder / entries.',
+       ) {
     host.addListener(notifyListeners);
   }
 
@@ -397,7 +521,28 @@ class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   final MultiNavStackCodec<K> codec;
 
   /// Maps a destination to its screen. See [NavDisplay.builder].
-  final NavWidgetBuilder<K> builder;
+  final NavWidgetBuilder<K>? builder;
+
+  /// The destination registry, as an alternative to [builder]. See
+  /// [NavDisplay.entries].
+  final NavEntries<K>? entries;
+
+  /// Optional **async** link resolution — the multi-tab sibling of
+  /// [NavStackRouterDelegate.asyncDecode]: awaited first for every incoming
+  /// link; return the location to show, or `null` to fall through to the sync
+  /// [codec]. Race-safe the same way.
+  final Future<MultiNavLocation<K>?> Function(Uri uri)? asyncDecode;
+
+  /// Optional chrome wrapped around the tabbed display (a `Scaffold` with a
+  /// `NavigationBar` is the classic one) — it lives under `MaterialApp`, so
+  /// themes/localization/restoration are available, and receives the [host] to
+  /// drive tab selection.
+  final Widget Function(
+    BuildContext context,
+    MultiNavStack<K> host,
+    Widget child,
+  )?
+  shell;
 
   /// Optional custom page/transition. See [NavDisplay.pageBuilder].
   final NavPageBuilder<K>? pageBuilder;
@@ -411,18 +556,70 @@ class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   /// Build tabs lazily. See [MultiNavDisplay.lazy].
   final bool lazy;
 
-  @override
-  Uri get currentConfiguration => codec.encode(host.index, host.active.keys);
+  /// See [NavStackRouterDelegate._linkGeneration] — same supersede rule.
+  int _linkGeneration = 0;
+
+  /// Debug-only: URIs already round-trip-validated. Bounded like
+  /// [NavStackRouterDelegate._validatedLinks].
+  final Set<String> _validatedLinks = {};
+
+  /// Set by [dispose] — see [NavStackRouterDelegate._disposed].
+  bool _disposed = false;
 
   @override
-  Widget build(BuildContext context) => MultiNavDisplay<K>(
-    host: host,
-    builder: builder,
-    pageBuilder: pageBuilder,
-    observers: observers,
-    decorators: decorators,
-    lazy: lazy,
-  );
+  Uri get currentConfiguration {
+    final uri = codec.encode(host.index, host.active.keys);
+    assert(() {
+      _debugValidateRoundTrip(uri);
+      return true;
+    }(), '');
+    return uri;
+  }
+
+  /// Same drift check as [NavStackRouterDelegate]: encode∘decode must be
+  /// idempotent on URIs, or deep links land somewhere the address bar doesn't
+  /// say the user is.
+  void _debugValidateRoundTrip(Uri uri) {
+    if (_validatedLinks.length >= 512) _validatedLinks.clear();
+    if (!_validatedLinks.add(uri.toString())) return;
+    try {
+      final loc = codec.decode(uri);
+      final reencoded = codec.encode(loc.tab, loc.stack);
+      if (reencoded.toString() != uri.toString()) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            library: 'back_stack',
+            exception: FlutterError(
+              'Link round-trip drift: the active tab encodes to "$uri", but '
+              'decoding that URL yields a location that encodes to '
+              '"$reencoded". The encode/decode directions of your '
+              'MultiNavStackCodec disagree.',
+            ),
+          ),
+        );
+      }
+    } on Object catch (_) {
+      // decode threw → the delegate's fallback hardening owns that case.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final display = MultiNavDisplay<K>(
+      host: host,
+      builder: builder,
+      entries: entries,
+      pageBuilder: pageBuilder,
+      observers: observers,
+      decorators: decorators,
+      lazy: lazy,
+    );
+    final wrap = shell;
+    if (wrap == null) return display;
+    // Shell chrome (Scaffold + NavigationBar) lives outside every tab's
+    // Navigator — give it its own Overlay so tooltips/menus in the bar work.
+    return Overlay.wrap(child: wrap(context, host, display));
+  }
 
   // The root delegate is where OS back arrives under a Router (the inner
   // MultiNavDisplay PopScope is inert with no ModalRoute above it). Route it
@@ -431,8 +628,11 @@ class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   Future<bool> popRoute() => SynchronousFuture<bool>(host.handleBack());
 
   @override
-  Future<void> setNewRoutePath(Uri configuration) async =>
-      handleLink(configuration);
+  Future<void> setNewRoutePath(Uri configuration) async {
+    // Same-location no-op — see NavStackRouterDelegate.setNewRoutePath.
+    if (configuration == currentConfiguration) return;
+    await handleLinkAsync(configuration);
+  }
 
   /// Apply a runtime deep link to the tabbed host — the imperative sibling of
   /// [setNewRoutePath], for links delivered asynchronously by a native plugin
@@ -440,23 +640,51 @@ class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
   /// tab and sets its stack, with the same never-throws hardening as a platform
   /// link. See [NavStackRouterDelegate.handleLink] for who owns what.
   void handleLink(Uri uri) {
-    final loc = _decodeOrFallback(uri);
-    if (loc == null || loc.tab < 0 || loc.tab >= host.length) return;
+    _linkGeneration++; // a sync link supersedes any in-flight async one
+    _apply(_decodeOrFallback(uri));
+  }
+
+  /// [handleLink] with [asyncDecode] (when set) given the first shot — the
+  /// multi-tab sibling of [NavStackRouterDelegate.handleLinkAsync].
+  Future<void> handleLinkAsync(Uri uri) async {
+    final resolve = asyncDecode;
+    if (resolve == null) return handleLink(uri);
+    final generation = ++_linkGeneration;
+    MultiNavLocation<K>? loc;
+    try {
+      loc = await resolve(uri);
+    } on Object catch (_) {
+      loc = null; // resolution failed — fall through to the sync mapping
+    }
+    // Superseded by a newer link, or the delegate was swapped out and disposed.
+    if (_disposed || generation != _linkGeneration) return;
+    if (loc != null && (loc.tab < 0 || loc.tab >= host.length)) loc = null;
+    _apply(loc ?? _decodeOrFallback(uri));
+  }
+
+  void _apply(MultiNavLocation<K>? loc) {
+    if (loc == null) return;
     // Select without popping-to-root: we're about to set the stack explicitly.
     host.select(loc.tab, popToRootOnReselect: false);
     if (loc.stack.isNotEmpty) host.active.replaceAll(loc.stack);
   }
 
   /// Decode a URL to a location without ever throwing — same deep-link hardening
-  /// as [NavStackRouterDelegate], for the multi-tab case.
+  /// as [NavStackRouterDelegate], for the multi-tab case. A decode that throws
+  /// **or targets an out-of-range tab** falls back to [MultiNavStackCodec
+  /// .fallbackFor]; if even the fallback misbehaves, keep the current screen.
   MultiNavLocation<K>? _decodeOrFallback(Uri uri) {
     try {
-      return codec.decode(uri);
+      final loc = codec.decode(uri);
+      if (loc.tab >= 0 && loc.tab < host.length) return loc;
+      // Out-of-range tab — treat like a malformed link and fall back.
     } on Object catch (_) {
       // Malformed link — fall through to the fallback below.
     }
     try {
-      return codec.fallbackFor(uri);
+      final loc = codec.fallbackFor(uri);
+      if (loc.tab >= 0 && loc.tab < host.length) return loc;
+      return null;
     } on Object catch (_) {
       return null; // Give up safely: keep whatever is already on screen.
     }
@@ -464,6 +692,7 @@ class MultiNavStackRouterDelegate<K extends NavKey> extends RouterDelegate<Uri>
 
   @override
   void dispose() {
+    _disposed = true;
     host.removeListener(notifyListeners);
     super.dispose();
   }

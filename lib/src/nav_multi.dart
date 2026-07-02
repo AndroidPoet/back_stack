@@ -1,4 +1,5 @@
 import 'package:back_stack/src/nav_display.dart';
+import 'package:back_stack/src/nav_entries.dart';
 import 'package:back_stack/src/nav_key.dart';
 import 'package:back_stack/src/nav_stack.dart';
 import 'package:flutter/widgets.dart';
@@ -55,11 +56,13 @@ class MultiNavStack<K extends NavKey> extends ChangeNotifier {
   bool get canHandleBack => active.canPop || _index != 0;
 
   /// Switch to tab [i]. Re-selecting the active tab pops it to its root when
-  /// [popToRootOnReselect] is true — the familiar bottom-nav gesture.
+  /// [popToRootOnReselect] is true — the familiar bottom-nav gesture. Same
+  /// semantics as [NavStack.popToRoot]: one change, one notification, and a
+  /// [NavStack.popGuard] on the current top still protects it.
   void select(int i, {bool popToRootOnReselect = true}) {
     assert(i >= 0 && i < _tabs.length, 'tab index out of range');
     if (i == _index) {
-      if (popToRootOnReselect) _popToRoot(active);
+      if (popToRootOnReselect) active.popToRoot();
       return;
     }
     _index = i;
@@ -86,10 +89,6 @@ class MultiNavStack<K extends NavKey> extends ChangeNotifier {
     return false;
   }
 
-  void _popToRoot(NavStack<K> stack) {
-    while (stack.pop()) {}
-  }
-
   @override
   void dispose() {
     for (final tab in _tabs) {
@@ -109,22 +108,31 @@ class MultiNavStack<K extends NavKey> extends ChangeNotifier {
 /// You supply the bottom bar yourself; drive it from `host.index` /
 /// `host.select(i)`.
 class MultiNavDisplay<K extends NavKey> extends StatefulWidget {
-  /// Creates a display for [host], rendering each destination with [builder].
+  /// Creates a display for [host], rendering each destination with [builder]
+  /// or [entries] — provide exactly one.
   const MultiNavDisplay({
     required this.host,
-    required this.builder,
+    this.builder,
+    this.entries,
     this.pageBuilder,
     this.observers = const [],
     this.decorators = const [],
     this.lazy = false,
     super.key,
-  });
+  }) : assert(
+         (builder != null) ^ (entries != null),
+         'Provide exactly one of builder / entries.',
+       );
 
   /// The per-tab stacks to render.
   final MultiNavStack<K> host;
 
   /// Maps a destination to its screen. See [NavDisplay.builder].
-  final NavWidgetBuilder<K> builder;
+  final NavWidgetBuilder<K>? builder;
+
+  /// The destination registry, as an alternative to [builder]. See
+  /// [NavDisplay.entries].
+  final NavEntries<K>? entries;
 
   /// Optional custom page/transition. See [NavDisplay.pageBuilder].
   final NavPageBuilder<K>? pageBuilder;
@@ -184,6 +192,7 @@ class _MultiNavDisplayState<K extends NavKey>
                     NavDisplay<K>(
                       stack: host.tabs[i],
                       builder: widget.builder,
+                      entries: widget.entries,
                       pageBuilder: widget.pageBuilder,
                       observers: widget.observers,
                       decorators: widget.decorators,
@@ -239,13 +248,24 @@ abstract final class MultiBackStack {
     bool listen = false,
   }) {
     final host = maybeOf<K>(context, listen: listen);
-    assert(
-      host != null,
-      'MultiBackStack.of<$K>() found no MultiNavStackScope<$K>. It is provided '
-      'by MultiNavDisplay<$K>; call this from a screen it builds with the same '
-      'key type.',
-    );
-    return host!;
+    if (host == null) {
+      throw FlutterError.fromParts([
+        ErrorSummary('MultiBackStack.of<$K>() found no MultiNavStackScope<$K>.'),
+        if (K == NavKey)
+          ErrorHint(
+            'The type argument resolved to the NavKey base type — this '
+            'usually means it was omitted. Call '
+            "MultiBackStack.of<YourKeyType>(context) with your app's "
+            'destination type.',
+          )
+        else
+          ErrorHint(
+            'A MultiNavStackScope<$K> is provided by MultiNavDisplay<$K>; '
+            'call this from a screen it builds with the same key type.',
+          ),
+      ]);
+    }
+    return host;
   }
 
   /// The nearest [MultiNavStack] of type [K], or null if there is none above.

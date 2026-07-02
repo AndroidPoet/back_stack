@@ -1,0 +1,74 @@
+# Dialogs, sheets & transitions
+
+A destination can carry its own presentation — a dialog, a sheet, a custom
+transition — right in its registration. No global `pageBuilder` switch:
+
+```dart
+entries.on<ConfirmDelete>(
+  (context, key) => const ConfirmDeleteContent(),
+  page: (context, key, child, pageKey) =>
+      DialogPage<void>(key: pageKey, builder: (_) => AlertDialog(content: child)),
+);
+```
+
+`child` is the built (and decorator-wrapped) screen; return any `Page`, keeping
+the supplied `pageKey` as its `key` (a debug assert catches a dropped one — it
+would silently desync system back).
+
+## Modals as stack entries
+
+`DialogPage` and `SheetPage` make a dialog or bottom sheet a **real stack
+entry**: `stack.push(const ConfirmDelete())` shows it, back dismisses it,
+`pop(result)` completes a `pushForResult` awaiter, and under the Router the URL
+can track it — instead of an imperative `showDialog` floating outside the stack.
+
+## Transitions per destination
+
+Same mechanism, with `TransitionPage`:
+
+```dart
+entries.on<Detail>(
+  (context, key) => DetailScreen(id: key.id),
+  page: (context, key, child, pageKey) =>
+      TransitionPage<void>.sharedAxisScaled(key: pageKey, child: child),
+);
+```
+
+The catalog covers the common cases plus the full Material motion set, all
+dependency-free. Pick the motion by the *relationship* between screens:
+
+- **`sharedAxisHorizontal`** — a step forward among peers (a wizard, onboarding).
+- **`sharedAxisVertical`** — the vertical sibling.
+- **`sharedAxisScaled`** — a step into a hierarchy (list → detail).
+- **`fadeThrough`** — switching between unrelated destinations (e.g. tabs),
+  where there's no spatial link to imply.
+- Plus `fade`, `slideUp`, `scale`, and `none`.
+
+The shared-axis and fade-through motions animate the *outgoing* screen too, the
+way Material intends — at the render-object level, with no per-frame widget
+rebuilds.
+
+## Alternatives
+
+**`NavPage` mixin** — the key builds its own `Page`, useful when the
+presentation really is part of the destination's identity:
+
+```dart
+class Toast extends NavKey with NavPage {
+  const Toast(this.message);
+  final String message;
+  @override
+  Page<void> buildPage(BuildContext context, Widget child, LocalKey pageKey) =>
+      TransitionPage<void>.fade(key: pageKey, child: child);
+}
+```
+
+**`pageBuilder`** — one switch for everything, on `NavDisplay` /
+`BackStackApp`, when you'd rather keep all presentation in one place:
+
+```dart
+pageBuilder: (context, key, pageKey) => switch (key) {
+  Step2() => TransitionPage.sharedAxisHorizontal(key: pageKey, child: screenFor(key)),
+  _       => MaterialPage(key: pageKey, child: screenFor(key)),
+};
+```

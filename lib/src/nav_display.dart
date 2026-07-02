@@ -1,3 +1,4 @@
+import 'package:back_stack/src/nav_entries.dart';
 import 'package:back_stack/src/nav_key.dart';
 import 'package:back_stack/src/nav_pages.dart';
 import 'package:back_stack/src/nav_scope.dart';
@@ -91,17 +92,24 @@ class NavEntryDecorator<K extends NavKey> {
 /// )
 /// ```
 class NavDisplay<K extends NavKey> extends StatefulWidget {
-  /// Creates a display for [stack], mapping each destination via [builder].
+  /// Creates a display for [stack], mapping each destination via [builder] —
+  /// or via [entries] (a [NavEntries] registry), which also carries any
+  /// per-destination page/transition registered with `entries.on<T>(page: …)`.
+  /// Provide exactly one of the two.
   const NavDisplay({
     required this.stack,
-    required this.builder,
+    this.builder,
+    this.entries,
     this.pageBuilder,
     this.observers = const [],
     this.decorators = const [],
     this.navigatorKey,
     this.nested = false,
     super.key,
-  });
+  }) : assert(
+         (builder != null) ^ (entries != null),
+         'Provide exactly one of builder / entries.',
+       );
 
   /// The back stack to render. The single source of truth.
   final NavStack<K> stack;
@@ -113,8 +121,18 @@ class NavDisplay<K extends NavKey> extends StatefulWidget {
   final GlobalKey<NavigatorState>? navigatorKey;
 
   /// Maps a destination to its screen widget. Wrapped in a default platform
-  /// page. Ignored when [pageBuilder] is provided.
-  final NavWidgetBuilder<K> builder;
+  /// page. Ignored when [pageBuilder] is provided. Alternative to [entries].
+  ///
+  /// Pages are memoized per entry; the memo survives parent rebuilds as long as
+  /// this function compares equal across builds — a method tear-off or a
+  /// top-level function does, an inline closure created in `build` does not.
+  final NavWidgetBuilder<K>? builder;
+
+  /// The destination registry to build screens from — the alternative to
+  /// [builder] that also carries per-destination presentation: a destination
+  /// registered with `entries.on<T>(…, page: …)` gets that page (dialog, sheet,
+  /// custom transition) with decorators still applied.
+  final NavEntries<K>? entries;
 
   /// Optional: build the whole [Page] yourself to control the transition.
   /// Takes precedence over [builder].
@@ -186,13 +204,21 @@ class _NavDisplayState<K extends NavKey> extends State<NavDisplay<K>> {
   void didUpdateWidget(NavDisplay<K> oldWidget) {
     super.didUpdateWidget(oldWidget);
     // A different stack (or a different page-building strategy) invalidates the
-    // memoized pages.
-    if (!identical(widget.stack, oldWidget.stack) ||
-        !identical(widget.builder, oldWidget.builder) ||
-        !identical(widget.pageBuilder, oldWidget.pageBuilder)) {
+    // memoized pages. Functions are compared with `==`, not `identical`, so a
+    // method tear-off (e.g. `entries.call`) stays stable across parent rebuilds
+    // and keeps its memo; only a genuinely different function invalidates.
+    final stackSwapped = !identical(widget.stack, oldWidget.stack);
+    if (stackSwapped ||
+        widget.builder != oldWidget.builder ||
+        !identical(widget.entries, oldWidget.entries) ||
+        widget.pageBuilder != oldWidget.pageBuilder) {
       _pages.clear();
-      // A swapped stack/builder is a different display, not a pop — forget the
-      // old entries without firing onRemoved (their identity no longer applies).
+    }
+    if (stackSwapped) {
+      // A swapped stack is a different display, not a pop — forget the old
+      // entries without firing onRemoved (their identity no longer applies).
+      // A mere builder change keeps _seen: the same entries are still on the
+      // same stack, and their eventual removal must still fire onRemoved.
       _seen.clear();
     }
   }
@@ -256,12 +282,34 @@ class _NavDisplayState<K extends NavKey> extends State<NavDisplay<K>> {
 
   Page<dynamic> _pageFor(BuildContext context, K key, LocalKey pageKey) {
     final custom = widget.pageBuilder;
-    if (custom != null) return custom(context, key, pageKey);
-    final content = _decorate(context, key, widget.builder(context, key));
+    if (custom != null) {
+      return _checkedPage(custom(context, key, pageKey), pageKey);
+    }
+    final builder = widget.builder ?? widget.entries!.call;
+    final content = _decorate(context, key, builder(context, key));
+    final entryPage = widget.entries?.pageFor(context, key, content, pageKey);
+    if (entryPage != null) return _checkedPage(entryPage, pageKey);
     if (key is NavPage) {
-      return (key as NavPage).buildPage(context, content, pageKey);
+      return _checkedPage(
+        (key as NavPage).buildPage(context, content, pageKey),
+        pageKey,
+      );
     }
     return MaterialPage<dynamic>(key: pageKey, child: content);
+  }
+
+  /// Debug-check that a dev-built page kept the supplied [pageKey]. The key is
+  /// how a system/predictive back finds its way back into the stack
+  /// (onDidRemovePage below matches on it) — a page that drops it would render
+  /// fine but silently desync the list on the first back gesture.
+  Page<dynamic> _checkedPage(Page<dynamic> page, LocalKey pageKey) {
+    assert(
+      page.key == pageKey,
+      'A custom Page for a back_stack entry must use the supplied pageKey as '
+      'its key (got ${page.key}). Without it, a system back gesture removes '
+      'the route but cannot sync the removal back into the NavStack.',
+    );
+    return page;
   }
 
   /// Wrap [child] with each decorator's `decorate`, first-decorator-outermost.

@@ -32,7 +32,8 @@ stack.refreshListenable = authNotifier;
 
 `redirect` is synchronous by design — that's what makes it loop-proof. When a
 gate needs to *await* (a permission call, a session refresh, a "does this
-deep-linked doc exist" check), use `AsyncRedirect`:
+deep-linked doc exist" check), use `AsyncRedirect`. One `attach` is the whole
+wiring:
 
 ```dart
 final gate = AsyncRedirect<AppKey>(
@@ -42,25 +43,63 @@ final gate = AsyncRedirect<AppKey>(
     }
     return null;              // allow as proposed
   },
-);
-stack
-  ..redirect = gate.call
-  ..refreshListenable = gate;
+)..attach(stack);
 ```
+
+`attach` sets the stack's `redirect` **and** `refreshListenable` together — the
+two halves that must always go together (with only the redirect set, a resolved
+check would never re-run it and gating would silently hang). `detach()` undoes
+it; `dispose()` auto-detaches and is safe mid-check.
 
 While a check runs, the stack stays put and `gate.resolving` (a
 `ValueListenable<bool>`) flips true — drive a loading overlay from it:
 
 ```dart
-Stack(children: [
-  NavDisplay(stack: stack, builder: entries.call),
-  ValueListenableBuilder(
-    valueListenable: gate.resolving,
-    builder: (_, busy, __) => busy ? const LoadingScrim() : const SizedBox(),
-  ),
-]);
+ValueListenableBuilder(
+  valueListenable: gate.resolving,
+  builder: (_, busy, __) => busy ? const LoadingScrim() : const SizedBox(),
+);
 ```
 
-The decision is cached per destination, so a check runs once — not on every
-rebuild. Call `gate.invalidate()` after login/logout to force a re-check. It's
-built on the sync primitives, so the core stays loop-proof.
+Decisions are cached per proposed stack (bounded — tune with `cacheSize:`), so
+a check runs once, not on every rebuild. Call `gate.invalidate()` after
+login/logout to force a re-check. If `check` throws, navigation is allowed —
+errors fail open rather than stranding the user.
+
+## Blocking *leaving* a screen
+
+`popGuard` vetoes a pop synchronously. For an async confirmation ("discard
+changes?"), set `popGuardAsync` and pop with `tryPop`:
+
+```dart
+stack.popGuardAsync = (top) async =>
+    top is! Editor || await confirmDiscard();
+
+final popped = await stack.tryPop(); // false if vetoed
+```
+
+Race-safe: if the stack changes while the guard is deciding, nothing is popped.
+For the system back gesture, wrap the screen in `ConfirmPopScope`.
+
+## Return to the intended destination
+
+`redirect` receives the whole proposed stack — so a denial can *carry it* in a
+typed key, and login can put the user exactly where they were headed:
+
+```dart
+class Login extends AppKey {
+  const Login({this.intended = const [Home()]});
+  final List<AppKey> intended;
+}
+
+stack.redirect = (proposed) =>
+    proposed.any((k) => k is Account) && !isLoggedIn
+        ? [Login(intended: proposed)]
+        : proposed;
+
+// on the login screen, after a successful sign-in:
+// (key is the Login — its intended field rode along, typed)
+BackStack.of<AppKey>(context).replaceAll(key.intended);
+```
+
+No query-string `?from=` round-trip — the intended stack is a real field.

@@ -26,13 +26,63 @@ navigation from "describe a path" to "change a list." This guide maps the pieces
 | `redirect:` (can loop; runs repeatedly) | `redirect` (pure, runs once) + `guard` (veto) |
 | async `redirect` | `AsyncRedirect` (loop-proof async gate) |
 | `refreshListenable:` | `stack.refreshListenable` (same idea) |
-| `ShellRoute` / `StatefulShellRoute` | `MultiNavStack` (persistent per-tab history) |
-| `errorBuilder:` / "no route found" | no such error class — destinations are typed. Only the deep-link boundary is untyped, handled by `onLinkFallback` |
+| `ShellRoute` / `StatefulShellRoute` | `BackStackTabsApp` (one widget; `MultiNavStack` underneath) |
+| `errorBuilder:` / "no route found" | `NavLinks.notFound` — in-app navigation is typed and can't reach an unknown screen; only the deep-link boundary is untyped |
 | `GoRouter.of(context)` | `BackStack.of<AppKey>(context)` |
-| `routerConfig` + `MaterialApp.router` | `BackStackApp(onLink: ...)` (one widget) |
-| deep links (via path matching) | `onLink: (Uri) => [destinations]` + `linkStream` for async native links |
+| `routerConfig` + `MaterialApp.router` | `BackStackApp(stack: ..., entries: ...)` (one widget) |
+| deep links (via path matching) | `links:` — a `NavLinks` table (both directions at once); `onLink`/`toLink` closures for full control |
 | `NavigatorObserver`s | `observers:` on `NavDisplay` |
 | `redirectLimit`, `initialLocation` | not needed — no redirect loops to bound; the stack's initial value is the initial location |
+
+## Routes table → NavLinks
+
+The direct translation of a go_router routes list is a `NavLinks` table: one
+entry per URL, declaring **both** directions at once (URL → key and key → URL).
+It only translates — it never owns navigation; the stack stays the source of
+truth.
+
+**go_router:**
+
+```dart
+final router = GoRouter(
+  routes: [
+    GoRoute(path: '/', builder: (c, s) => const HomeScreen()),
+    GoRoute(
+      path: '/product/:id',
+      builder: (c, s) => ProductScreen(id: int.parse(s.pathParameters['id']!)),
+    ),
+    GoRoute(
+      path: '/search',
+      builder: (c, s) => SearchScreen(q: s.uri.queryParameters['q'] ?? ''),
+    ),
+  ],
+  errorBuilder: (c, s) => const NotFoundScreen(),
+);
+```
+
+**back_stack** — the URL side becomes a `NavLinks` table (screens live in
+`NavEntries`, see the next section):
+
+```dart
+final links = NavLinks<AppKey>()
+  ..on<Home>('/', decode: (m) => const Home())
+  ..on<Product>('/product/:id',
+      decode: (m) => Product(m.integer('id')!),
+      encode: (key) => {'id': key.id},
+      parents: (key) => const [Home()])   // Back from a deep link goes Home
+  ..on<Search>('/search',
+      decode: (m) => Search(m.str('q') ?? ''),
+      encode: (key) => {'q': key.q})      // not in the pattern → query param
+  ..notFound((uri) => const [Home(), NotFoundScreen()]);
+
+BackStackApp<AppKey>(stack: stack, entries: entries, links: links);
+```
+
+What you gain over the routes list: the key → URL direction (address bar,
+shareable `links.linkFor(key)`) is declared in the same entry instead of being
+derived implicitly, `parents:` makes the deep-link back stack explicit per
+destination, and with `links:` set the **entire typed stack** is restored
+across process death — not just the URL. `errorBuilder` becomes `notFound`.
 
 ## 1. Routes become typed destinations
 
@@ -156,10 +206,7 @@ final gate = AsyncRedirect<AppKey>(
     }
     return null;              // allow as proposed
   },
-);
-stack
-  ..redirect = gate.call
-  ..refreshListenable = gate;
+)..attach(stack); // wires redirect + refreshListenable in one call
 
 // gate.resolving is a ValueListenable<bool> — drive a loading overlay from it.
 ```
@@ -169,8 +216,32 @@ Call `gate.invalidate()` after login/logout to force a re-check.
 
 ## 5. Nested navigation / bottom tabs
 
-`ShellRoute` / `StatefulShellRoute` → `MultiNavStack`, which keeps one back stack
-per tab, persistent across switches:
+`StatefulShellRoute` and its branch ceremony → `BackStackTabsApp`, one widget:
+
+```dart
+BackStackTabsApp<AppKey>(
+  tabs: [
+    NavStack<AppKey>.of(const Feed()),
+    NavStack<AppKey>.of(const Search()),
+    NavStack<AppKey>.of(const Profile()),
+  ],
+  entries: entries,
+  destinations: const [
+    NavigationDestination(icon: Icon(Icons.home), label: 'Feed'),
+    NavigationDestination(icon: Icon(Icons.search), label: 'Search'),
+    NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
+  ],
+  links: links, // optional: a link lands in the right tab automatically
+);
+```
+
+Each tab keeps its own history across switches, system back pops the active tab
+first, re-tapping the active tab pops to root, and with `links:` every tab's
+stack plus the active tab survive process death. Pass `shell:` instead of
+`destinations:` for your own chrome (the `ShellRoute` case).
+
+Underneath it's `MultiNavStack`, which you can wire yourself for full control —
+one back stack per tab, persistent across switches:
 
 ```dart
 final host = MultiNavStack<TabKey>([
@@ -198,9 +269,14 @@ sync/deep links with `MultiNavStackRouterDelegate` + a `MultiNavStackCodec`.
 
 ## 6. Deep links and web URLs
 
-go_router derives everything from path matching. back_stack keeps the stack as the
-source of truth and lets *you* say what a link materializes — which fixes the
-"a deep link nukes my whole stack" problem (return `[Home(), Product(42)]` so Back
+The declarative path is the `NavLinks` table from
+[Routes table → NavLinks](#routes-table--navlinks) above — pass it as
+`BackStackApp(links: …)` and deep links, the address bar, browser back/forward
+and full-stack restoration are done. Its `parents:` fixes the "a deep link
+nukes my whole stack" problem per destination.
+
+For full control, write the mapping yourself with `onLink`/`toLink` closures —
+you decide what a link materializes (return `[Home(), Product(42)]` so Back
 still goes Home, or just `[Product(42)]` to replace):
 
 ```dart

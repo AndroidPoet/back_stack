@@ -1,0 +1,3 @@
+# The demo gif is ~2 MB and the README embeds it from raw.githubusercontent.com,
+# so shipping it in the package archive only bloats every consumer's pub get.
+demo.gif
