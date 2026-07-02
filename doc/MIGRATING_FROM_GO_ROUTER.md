@@ -226,6 +226,13 @@ void main() => runApp(
 from native (custom scheme, Firebase Dynamic Links, warm `app_links`) flow through
 the same `onLink` via `linkStream`.
 
+> **Cold-start ordering (bites go_router users too).** Whatever router you use,
+> `app_links`' `uriLinkStream` only replays the launch URI to its first listener
+> if the `AppLinks()` singleton exists when the OS delivers it. Create `AppLinks()`
+> early — a top-level `final` or in `main()` — not lazily inside a widget, or the
+> cold-start link is gone before anything subscribes. With `BackStackApp` you then
+> just pass `appLinks.uriLinkStream` to `linkStream`.
+
 ## 7. What you can delete
 
 - The route-tree list and every `path:` string.

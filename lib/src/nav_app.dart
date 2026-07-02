@@ -40,7 +40,10 @@ import 'package:flutter/material.dart';
 /// that stream as [linkStream] and every emission runs through the same [onLink]:
 ///
 /// ```dart
+/// // Create the plugin EARLY — a top-level singleton (or in main() before
+/// // runApp), never lazily inside a widget. See the ordering note below.
 /// final appLinks = AppLinks(); // from the app_links package (you own the plugin)
+///
 /// BackStackApp<AppKey>(
 ///   stack: NavStack.of(const Home()),
 ///   builder: entries.call,
@@ -48,6 +51,15 @@ import 'package:flutter/material.dart';
 ///   linkStream: appLinks.uriLinkStream, // runtime links → same onLink
 /// );
 /// ```
+///
+/// **Cold start: order, not luck.** `app_links`' `uriLinkStream` replays the
+/// launch URI (the one that cold-started the app) to its first listener — but
+/// only if the `AppLinks()` singleton already exists when the OS delivers it.
+/// Create it early (a top-level `final`, or in `main()` before `runApp`); create
+/// it late, deep in a widget's build, and the first link is already gone. Passing
+/// `appLinks.uriLinkStream` here is enough *because* [linkStream] is subscribed in
+/// this widget's `initState`, which runs on the first frame — provided the plugin
+/// itself was constructed early.
 ///
 /// back_stack stays dependency-free: it owns the `Uri` → stack mapping and the
 /// subscription lifecycle; you bring the `Uri`s from whatever plugin you prefer.
@@ -107,6 +119,9 @@ class BackStackApp<K extends NavKey> extends StatefulWidget {
   /// platform link. Bring it from your deep-link plugin (e.g.
   /// `AppLinks().uriLinkStream`); back_stack owns the subscription and cancels it
   /// on dispose. Omit it if you only need the launch URL and web links.
+  ///
+  /// Construct the plugin (e.g. `AppLinks()`) **early** — a top-level singleton or
+  /// in `main()` — so the cold-start URI isn't lost. See the class docs.
   final Stream<Uri>? linkStream;
 
   /// Optional custom page/transition. See [NavDisplay.pageBuilder].

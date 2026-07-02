@@ -125,6 +125,7 @@ void main() => runApp(
 The platform hands `BackStackApp` the launch URL and the standard app links it resolves itself. Links that arrive **while the app is already running** — a custom scheme (`myapp://…`), a Firebase Dynamic Link, a warm `app_links` link — come from a native plugin as a `Stream<Uri>`. Pass that stream as `linkStream` and every emission runs through the *same* `onLink`:
 
 ```dart
+// Create the plugin EARLY — a top-level singleton, not lazily in a widget.
 final appLinks = AppLinks(); // from the app_links package — you own the plugin
 
 BackStackApp<AppKey>(
@@ -134,6 +135,8 @@ BackStackApp<AppKey>(
   linkStream: appLinks.uriLinkStream, // runtime links → same onLink, same fallback
 );
 ```
+
+> **Cold start: order, not luck.** `app_links`' `uriLinkStream` replays the launch URI (the one that cold-started the app) to its first listener — *but only if the `AppLinks()` singleton already exists when the OS delivers it*. Create it early (a top-level `final`, or in `main()` before `runApp`); create it late, deep in a widget, and the first link is already gone. `BackStackApp` subscribes to `linkStream` in `initState` (first frame), so passing `appLinks.uriLinkStream` is enough — as long as the plugin itself was constructed early.
 
 back_stack stays dependency-free: it owns the `Uri` → stack mapping and the subscription lifecycle; you bring the `Uri`s from whatever plugin you prefer. Driving your own router instead? Call `delegate.handleLink(uri)` (on `NavStackRouterDelegate` or `MultiNavStackRouterDelegate`) — the imperative sibling of the platform's `setNewRoutePath`, with the same never-throws hardening.
 
