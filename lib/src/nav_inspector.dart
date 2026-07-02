@@ -62,7 +62,8 @@ class BackStackInspector<K extends NavKey> extends StatelessWidget {
             const SizedBox(height: 4),
             for (var i = 0; i < keys.length; i++)
               _Row(
-                text: '${i == keys.length - 1 ? '▶ ' : '  '}${keys[i].runtimeType}',
+                text:
+                    '${i == keys.length - 1 ? '▶ ' : '  '}${keys[i].runtimeType}',
                 isTop: i == keys.length - 1,
                 onTap: onTapEntry == null ? null : () => onTapEntry!(i),
               ),

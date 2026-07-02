@@ -420,7 +420,10 @@ class _BackStackTabsAppState<K extends NavKey>
       final oldDelegate = _delegate;
       final oldHost = _host;
       if (tabsSwapped) {
-        _host = MultiNavStack<K>(widget.tabs, initialIndex: widget.initialIndex);
+        _host = MultiNavStack<K>(
+          widget.tabs,
+          initialIndex: widget.initialIndex,
+        );
         _initialTabKeys = [for (final tab in widget.tabs) tab.keys];
       }
       _delegate = _buildDelegate();

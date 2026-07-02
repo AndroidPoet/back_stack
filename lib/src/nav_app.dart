@@ -298,8 +298,7 @@ class _BackStackAppState<K extends NavKey> extends State<BackStackApp<K>> {
   Widget _buildScreen(BuildContext context, K key) =>
       (widget.builder ?? widget.entries!.call)(context, key);
 
-  Future<List<K>?> _resolveLink(Uri uri) async =>
-      widget.onLinkAsync?.call(uri);
+  Future<List<K>?> _resolveLink(Uri uri) async => widget.onLinkAsync?.call(uri);
 
   Widget _shell(BuildContext context, NavStack<K> stack, Widget child) {
     var content = child;

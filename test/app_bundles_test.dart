@@ -429,8 +429,9 @@ void main() {
         stack: stack,
         codec: NavStackCodec<K>.of(
           // encode says '/a', but decoding '/a' re-encodes to '/a?drifted=1'.
-          encode: (keys) =>
-              keys.last is Product ? Uri.parse('/a?drifted=1') : Uri.parse('/a'),
+          encode: (keys) => keys.last is Product
+              ? Uri.parse('/a?drifted=1')
+              : Uri.parse('/a'),
           decode: (uri) => const [Home(), Product(1)],
         ),
         builder: (context, key) => const SizedBox(),

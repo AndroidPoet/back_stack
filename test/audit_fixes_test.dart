@@ -44,7 +44,9 @@ class _AppKeyCodec extends NavKeyCodec<AppKey> {
   };
   @override
   AppKey decode(String data) {
-    if (data.startsWith('product:')) return Product(int.parse(data.substring(8)));
+    if (data.startsWith('product:')) {
+      return Product(int.parse(data.substring(8)));
+    }
     return switch (data) {
       'profile' => const Profile(),
       'picker' => const Picker(),
@@ -93,27 +95,33 @@ void main() {
       expect(stack.keys, [isA<Feed>()], reason: 'push was blocked');
     });
 
-    test('completes null when redirect collapses the push to a no-op', () async {
-      final stack = NavStack<AppKey>.of(const Feed());
-      addTearDown(stack.dispose);
-      stack.redirect = (proposed) => proposed.whereType<Feed>().toList();
+    test(
+      'completes null when redirect collapses the push to a no-op',
+      () async {
+        final stack = NavStack<AppKey>.of(const Feed());
+        addTearDown(stack.dispose);
+        stack.redirect = (proposed) => proposed.whereType<Feed>().toList();
 
-      final result = await stack.pushForResult<Object>(const Picker());
+        final result = await stack.pushForResult<Object>(const Picker());
 
-      expect(result, isNull);
-      expect(stack.keys, [isA<Feed>()]);
-    });
+        expect(result, isNull);
+        expect(stack.keys, [isA<Feed>()]);
+      },
+    );
 
-    test('a normal pushForResult still resolves with the popped value', () async {
-      final stack = NavStack<AppKey>.of(const Feed());
-      addTearDown(stack.dispose);
+    test(
+      'a normal pushForResult still resolves with the popped value',
+      () async {
+        final stack = NavStack<AppKey>.of(const Feed());
+        addTearDown(stack.dispose);
 
-      final future = stack.pushForResult<int>(const Picker());
-      expect(stack.keys.last, isA<Picker>());
-      stack.pop(42);
+        final future = stack.pushForResult<int>(const Picker());
+        expect(stack.keys.last, isA<Picker>());
+        stack.pop(42);
 
-      expect(await future, 42);
-    });
+        expect(await future, 42);
+      },
+    );
   });
 
   group('MultiNavStack composes with the Router (fix #3a)', () {
@@ -130,7 +138,9 @@ void main() {
         }
         if (s.length == 3 && s[1] == 'product') {
           final id = int.tryParse(s[2]);
-          if (id != null) return MultiNavLocation(0, [const Feed(), Product(id)]);
+          if (id != null) {
+            return MultiNavLocation(0, [const Feed(), Product(id)]);
+          }
         }
         return const MultiNavLocation(0, [Feed()]);
       },
@@ -342,7 +352,8 @@ void main() {
       expect(
         find.text('detail:3'),
         findsOneWidget,
-        reason: 'detail State was reparented across the breakpoint, not rebuilt',
+        reason:
+            'detail State was reparented across the breakpoint, not rebuilt',
       );
     });
 
@@ -386,7 +397,11 @@ void main() {
       width.value = 1000; // narrow → wide two-pane
       await tester.pumpAndSettle();
 
-      expect(find.text('list:2'), findsOneWidget, reason: 'list State survived');
+      expect(
+        find.text('list:2'),
+        findsOneWidget,
+        reason: 'list State survived',
+      );
     });
   });
 
@@ -419,51 +434,63 @@ void main() {
       await tester.tap(find.text('feed'));
       await tester.pumpAndSettle();
 
-      expect(host.index, 1, reason: 'the Feed screen switched to the Profile tab');
+      expect(
+        host.index,
+        1,
+        reason: 'the Feed screen switched to the Profile tab',
+      );
       expect(find.text('profile'), findsOneWidget);
     });
   });
 
   group('RestorableMultiNavStack survives process death (fix #3b)', () {
-    testWidgets('restores each tab and the active index', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          restorationScopeId: 'app',
-          home: RestorableMultiNavStack<AppKey>(
-            restorationId: 'tabs',
-            create: () => MultiNavStack<AppKey>([
-              NavStack.of(const Feed()),
-              NavStack.of(const Profile()),
-            ]),
-            codec: const _AppKeyCodec(),
-            builder: (context, host) =>
-                MultiNavDisplay<AppKey>(host: host, builder: _screenFor),
+    testWidgets(
+      'restores each tab and the active index',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            restorationScopeId: 'app',
+            home: RestorableMultiNavStack<AppKey>(
+              restorationId: 'tabs',
+              create: () => MultiNavStack<AppKey>([
+                NavStack.of(const Feed()),
+                NavStack.of(const Profile()),
+              ]),
+              codec: const _AppKeyCodec(),
+              builder: (context, host) =>
+                  MultiNavDisplay<AppKey>(host: host, builder: _screenFor),
+            ),
           ),
-        ),
-      );
+        );
 
-      final host = tester
-          .widget<MultiNavDisplay<AppKey>>(find.byType(MultiNavDisplay<AppKey>))
-          .host;
-      host.active.push(const Product(3)); // deepen tab 0
-      host.select(1); // move to tab 1
-      await tester.pumpAndSettle();
-      expect(find.text('profile'), findsOneWidget);
+        final host = tester
+            .widget<MultiNavDisplay<AppKey>>(
+              find.byType(MultiNavDisplay<AppKey>),
+            )
+            .host;
+        host.active.push(const Product(3)); // deepen tab 0
+        host.select(1); // move to tab 1
+        await tester.pumpAndSettle();
+        expect(find.text('profile'), findsOneWidget);
 
-      await tester.restartAndRestore();
-      await tester.pumpAndSettle();
+        await tester.restartAndRestore();
+        await tester.pumpAndSettle();
 
-      final restored = tester
-          .widget<MultiNavDisplay<AppKey>>(find.byType(MultiNavDisplay<AppKey>))
-          .host;
-      expect(restored.index, 1, reason: 'active tab came back');
-      expect(find.text('profile'), findsOneWidget);
-      expect(
-        restored.tabs[0].keys,
-        [isA<Feed>(), isA<Product>()],
-        reason: 'the other tab kept its deep stack',
-      );
-    }, experimentalLeakTesting: LeakTesting.settings.withIgnoredAll());
+        final restored = tester
+            .widget<MultiNavDisplay<AppKey>>(
+              find.byType(MultiNavDisplay<AppKey>),
+            )
+            .host;
+        expect(restored.index, 1, reason: 'active tab came back');
+        expect(find.text('profile'), findsOneWidget);
+        expect(
+          restored.tabs[0].keys,
+          [isA<Feed>(), isA<Product>()],
+          reason: 'the other tab kept its deep stack',
+        );
+      },
+      experimentalLeakTesting: LeakTesting.settings.withIgnoredAll(),
+    );
   });
 
   group('NavEntries — registrable builder (Nav3 entryProvider)', () {
@@ -473,14 +500,19 @@ void main() {
       final stack = NavStack<AppKey>.of(const Feed());
       addTearDown(stack.dispose);
       final entries = NavEntries<AppKey>()
-        ..on<Feed>((context, key) => const Text('feed', textDirection: TextDirection.ltr))
+        ..on<Feed>(
+          (context, key) =>
+              const Text('feed', textDirection: TextDirection.ltr),
+        )
         ..on<Product>(
           (context, key) =>
               Text('product ${key.id}', textDirection: TextDirection.ltr),
         );
 
       await tester.pumpWidget(
-        MaterialApp(home: NavDisplay<AppKey>(stack: stack, builder: entries.call)),
+        MaterialApp(
+          home: NavDisplay<AppKey>(stack: stack, builder: entries.call),
+        ),
       );
       expect(find.text('feed'), findsOneWidget);
 
@@ -493,10 +525,15 @@ void main() {
       final stack = NavStack<AppKey>.of(const Feed());
       addTearDown(stack.dispose);
       final entries = NavEntries<AppKey>()
-        ..on<Feed>((context, key) => const Text('feed', textDirection: TextDirection.ltr));
+        ..on<Feed>(
+          (context, key) =>
+              const Text('feed', textDirection: TextDirection.ltr),
+        );
 
       await tester.pumpWidget(
-        MaterialApp(home: NavDisplay<AppKey>(stack: stack, builder: entries.call)),
+        MaterialApp(
+          home: NavDisplay<AppKey>(stack: stack, builder: entries.call),
+        ),
       );
       stack.push(const Profile()); // never registered
       await tester.pumpAndSettle();
@@ -506,8 +543,9 @@ void main() {
     test('composes across modules', () {
       final entries = NavEntries<AppKey>();
       // Two "feature modules" register into one shared instance.
-      void registerFeed(NavEntries<AppKey> e) =>
-          e.on<Feed>((c, k) => const Text('feed', textDirection: TextDirection.ltr));
+      void registerFeed(NavEntries<AppKey> e) => e.on<Feed>(
+        (c, k) => const Text('feed', textDirection: TextDirection.ltr),
+      );
       void registerShop(NavEntries<AppKey> e) => e.on<Product>(
         (c, k) => const Text('shop', textDirection: TextDirection.ltr),
       );
@@ -526,7 +564,10 @@ void main() {
       addTearDown(stack.dispose);
       final deco = NavEntryDecorator<AppKey>(
         decorate: (context, key, child) => Stack(
-          children: [child, const Text('deco', textDirection: TextDirection.ltr)],
+          children: [
+            child,
+            const Text('deco', textDirection: TextDirection.ltr),
+          ],
         ),
       );
 
@@ -568,7 +609,9 @@ void main() {
 
       stack.pop();
       await tester.pumpAndSettle();
-      expect(removed, [isA<Product>()], reason: 'the popped entry was cleaned up');
+      expect(removed, [
+        isA<Product>(),
+      ], reason: 'the popped entry was cleaned up');
     });
 
     testWidgets('onRemoved fires for remaining entries when disposed', (

@@ -24,7 +24,8 @@ class HomeScreen extends StatelessWidget {
       body: Center(
         child: FilledButton(
           // Navigate by pushing a typed destination onto the list.
-          onPressed: () => BackStack.of<AppKey>(context).push(const Product(42)),
+          onPressed: () =>
+              BackStack.of<AppKey>(context).push(const Product(42)),
           child: const Text('Open product 42'),
         ),
       ),

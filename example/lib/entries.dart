@@ -56,7 +56,10 @@ class _EntriesDemoState extends State<EntriesDemo> {
     return MaterialApp(
       title: 'back_stack — entries & decorators',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: const Color(0xFF4F46E5), useMaterial3: true),
+      theme: ThemeData(
+        colorSchemeSeed: const Color(0xFF4F46E5),
+        useMaterial3: true,
+      ),
       home: NavDisplay<Screen>(
         stack: stack,
         // The whole app's routing table: a map, not a switch.
@@ -72,8 +75,10 @@ class _EntriesDemoState extends State<EntriesDemo> {
             onRemoved: (key) {
               if (key is Detail) {
                 _openScopes.remove(key.id);
-                debugPrint('disposed scope for Detail(${key.id}) — '
-                    'open scopes: $_openScopes');
+                debugPrint(
+                  'disposed scope for Detail(${key.id}) — '
+                  'open scopes: $_openScopes',
+                );
               }
             },
           ),

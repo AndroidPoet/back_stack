@@ -232,7 +232,10 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
       assert(_checkResultType(_entries.last.id, result), '');
     }
     _commit(
-      [..._entries.sublist(0, _entries.length - 1), NavEntry<K>(key, _nextId++)],
+      [
+        ..._entries.sublist(0, _entries.length - 1),
+        NavEntry<K>(key, _nextId++),
+      ],
       poppedId: _entries.last.id,
       poppedResult: result,
     );

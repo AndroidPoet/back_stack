@@ -18,12 +18,17 @@ void main() {
   // Each Material motion should drive a push/pop to completion, animate the
   // outgoing screen (both on screen mid-transition), and leave the incoming one
   // showing — without throwing.
-  for (final entry in <String, TransitionPage<dynamic> Function(Widget, LocalKey)>{
-    'sharedAxisHorizontal': (c, k) => TransitionPage<void>.sharedAxisHorizontal(child: c, key: k),
-    'sharedAxisVertical': (c, k) => TransitionPage<void>.sharedAxisVertical(child: c, key: k),
-    'sharedAxisScaled': (c, k) => TransitionPage<void>.sharedAxisScaled(child: c, key: k),
-    'fadeThrough': (c, k) => TransitionPage<void>.fadeThrough(child: c, key: k),
-  }.entries) {
+  for (final entry
+      in <String, TransitionPage<dynamic> Function(Widget, LocalKey)>{
+        'sharedAxisHorizontal': (c, k) =>
+            TransitionPage<void>.sharedAxisHorizontal(child: c, key: k),
+        'sharedAxisVertical': (c, k) =>
+            TransitionPage<void>.sharedAxisVertical(child: c, key: k),
+        'sharedAxisScaled': (c, k) =>
+            TransitionPage<void>.sharedAxisScaled(child: c, key: k),
+        'fadeThrough': (c, k) =>
+            TransitionPage<void>.fadeThrough(child: c, key: k),
+      }.entries) {
     testWidgets('${entry.key}: push animates both screens then settles', (
       tester,
     ) async {

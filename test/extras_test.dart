@@ -86,8 +86,11 @@ void main() {
       expect(s.removeWhere((k) => k is B), isTrue);
       expect(s.keys.map((k) => k.runtimeType), [A, C]);
 
-      expect(s.removeWhere((k) => k is A || k is C), isFalse,
-          reason: 'removing everything is refused');
+      expect(
+        s.removeWhere((k) => k is A || k is C),
+        isFalse,
+        reason: 'removing everything is refused',
+      );
       expect(s.keys.map((k) => k.runtimeType), [A, C]); // unchanged
     });
   });

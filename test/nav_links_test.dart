@@ -83,7 +83,9 @@ void main() {
       );
       expect(
         links.decode(Uri.parse('/docs/guides/deep-links')),
-        const [Docs(['guides', 'deep-links'])],
+        const [
+          Docs(['guides', 'deep-links']),
+        ],
       );
       // Catch-all matches zero segments too.
       expect(links.decode(Uri.parse('/docs')), const [Docs([])]);
@@ -153,7 +155,9 @@ void main() {
         '/search?q=shoes&page=2',
       );
       expect(
-        links.encode(const [Docs(['a', 'b'])]).toString(),
+        links.encode(const [
+          Docs(['a', 'b']),
+        ]).toString(),
         '/docs/a/b',
       );
       expect(links.encode(const [Home()]).toString(), '/');
@@ -182,9 +186,13 @@ void main() {
       expect(links.decode(uri), const [Home(), Search('red shoes')]);
 
       // Path segments percent-encode too.
-      final docs = links.encode(const [Docs(['a b'])]);
+      final docs = links.encode(const [
+        Docs(['a b']),
+      ]);
       expect(docs.toString(), '/docs/a%20b');
-      expect(links.decode(docs), const [Docs(['a b'])]);
+      expect(links.decode(docs), const [
+        Docs(['a b']),
+      ]);
     });
   });
 
@@ -195,7 +203,9 @@ void main() {
         [Home()],
         [Home(), Product(1)],
         [Home(), Search('q w', page: 9)],
-        [Docs(['x'])],
+        [
+          Docs(['x']),
+        ],
         [Docs([])],
       ];
       for (final stack in stacks) {

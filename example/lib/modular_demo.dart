@@ -88,7 +88,8 @@ class _ModularDemoState extends State<ModularDemo> {
 
   // One decorator, applied to every screen.
   late final decorator = NavEntryDecorator<AppKey>(
-    decorate: (context, key, child) => _Instrumented(label: _labelOf(key), child: child),
+    decorate: (context, key, child) =>
+        _Instrumented(label: _labelOf(key), child: child),
     onRemoved: (key) {
       // Defer the notifier write: onRemoved runs inside the display's build.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -111,7 +112,10 @@ class _ModularDemoState extends State<ModularDemo> {
     return MaterialApp(
       title: 'back_stack — modular demo',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: const Color(0xFF4F46E5), useMaterial3: true),
+      theme: ThemeData(
+        colorSchemeSeed: const Color(0xFF4F46E5),
+        useMaterial3: true,
+      ),
       home: NavDisplay<AppKey>(
         stack: stack,
         builder: entries.call, // the composed NavEntries map
@@ -168,7 +172,11 @@ class _OverlayCard extends StatelessWidget {
             children: [
               Text(
                 'decorator active on: $activeLabel',
-                style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                ),
               ),
               const SizedBox(height: 6),
               ValueListenableBuilder<List<String>>(
@@ -177,7 +185,11 @@ class _OverlayCard extends StatelessWidget {
                   if (log.isEmpty) {
                     return const Text(
                       'onRemoved log: (pop a screen to see teardown)',
-                      style: TextStyle(color: Colors.white54, fontSize: 11, fontFamily: 'monospace'),
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                      ),
                     );
                   }
                   return Column(
@@ -186,7 +198,11 @@ class _OverlayCard extends StatelessWidget {
                       for (final line in log)
                         Text(
                           line,
-                          style: const TextStyle(color: Color(0xFF9DE7C0), fontSize: 11, fontFamily: 'monospace'),
+                          style: const TextStyle(
+                            color: Color(0xFF9DE7C0),
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                          ),
                         ),
                     ],
                   );
@@ -248,7 +264,10 @@ class ArticleScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Article #$id', style: Theme.of(context).textTheme.headlineSmall),
+            Text(
+              'Article #$id',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
             const SizedBox(height: 12),
             const Text(
               'Pop this screen and watch the overlay: the decorator fires '

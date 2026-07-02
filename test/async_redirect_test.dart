@@ -31,8 +31,7 @@ void main() {
   test('denies a gated destination once the async check resolves', () async {
     final check = Completer<List<K>?>();
     final gate = AsyncRedirect<K>(
-      check: (proposed) =>
-          proposed.any((k) => k is Admin)
+      check: (proposed) => proposed.any((k) => k is Admin)
           ? check.future
           : Future<List<K>?>.value(),
     );

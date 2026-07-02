@@ -251,7 +251,10 @@ class NavLinks<K extends NavKey> extends NavStackCodec<K> {
     final queryParameters = query.isEmpty ? null : query;
     return segments.isEmpty
         ? Uri(path: '/', queryParameters: queryParameters)
-        : Uri(pathSegments: ['', ...segments], queryParameters: queryParameters);
+        : Uri(
+            pathSegments: ['', ...segments],
+            queryParameters: queryParameters,
+          );
   }
 
   static List<_PatternSegment> _parsePattern(String pattern) {

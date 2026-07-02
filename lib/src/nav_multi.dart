@@ -250,7 +250,9 @@ abstract final class MultiBackStack {
     final host = maybeOf<K>(context, listen: listen);
     if (host == null) {
       throw FlutterError.fromParts([
-        ErrorSummary('MultiBackStack.of<$K>() found no MultiNavStackScope<$K>.'),
+        ErrorSummary(
+          'MultiBackStack.of<$K>() found no MultiNavStackScope<$K>.',
+        ),
         if (K == NavKey)
           ErrorHint(
             'The type argument resolved to the NavKey base type — this '

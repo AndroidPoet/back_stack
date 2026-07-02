@@ -55,19 +55,22 @@ void main() {
       expect(s.current, isA<A>());
     });
 
-    test('race: stack changed while the guard was deciding → nothing pops', () async {
-      final s = NavStack<K>.of(const A())..push(const B());
-      addTearDown(s.dispose);
-      final gate = Completer<bool>();
-      s.popGuardAsync = (top) => gate.future;
+    test(
+      'race: stack changed while the guard was deciding → nothing pops',
+      () async {
+        final s = NavStack<K>.of(const A())..push(const B());
+        addTearDown(s.dispose);
+        final gate = Completer<bool>();
+        s.popGuardAsync = (top) => gate.future;
 
-      final popping = s.tryPop();
-      s.push(const C()); // the world moved on mid-await
-      gate.complete(true);
+        final popping = s.tryPop();
+        s.push(const C()); // the world moved on mid-await
+        gate.complete(true);
 
-      expect(await popping, isFalse, reason: 'guard answered about B, not C');
-      expect(s.keys.map((k) => k.runtimeType), [A, B, C]);
-    });
+        expect(await popping, isFalse, reason: 'guard answered about B, not C');
+        expect(s.keys.map((k) => k.runtimeType), [A, B, C]);
+      },
+    );
 
     test('sync popGuard still runs after the async one', () async {
       final s = NavStack<K>.of(const A())..push(const B());
@@ -88,14 +91,17 @@ void main() {
   });
 
   group('replaceTop result forwarding', () {
-    test('the replaced pushForResult screen still delivers its value', () async {
-      final s = NavStack<K>.of(const A());
-      addTearDown(s.dispose);
-      final picked = s.pushForResult<int>(const B());
-      s.replaceTop(const C(), result: 5);
-      expect(await picked, 5);
-      expect(s.keys.map((k) => k.runtimeType), [A, C]);
-    });
+    test(
+      'the replaced pushForResult screen still delivers its value',
+      () async {
+        final s = NavStack<K>.of(const A());
+        addTearDown(s.dispose);
+        final picked = s.pushForResult<int>(const B());
+        s.replaceTop(const C(), result: 5);
+        expect(await picked, 5);
+        expect(s.keys.map((k) => k.runtimeType), [A, C]);
+      },
+    );
 
     test('without a result the awaiter resolves null (never hangs)', () async {
       final s = NavStack<K>.of(const A());
@@ -183,26 +189,29 @@ void main() {
       expect(s.refreshListenable, isNull);
     });
 
-    test('dispose while a check is in flight neither crashes nor applies', () async {
-      final s = NavStack<K>.of(const A());
-      addTearDown(s.dispose);
-      final started = Completer<void>();
-      final finish = Completer<List<K>?>();
-      final gate = AsyncRedirect<K>(
-        check: (proposed) {
-          started.complete();
-          return finish.future;
-        },
-      )..attach(s);
+    test(
+      'dispose while a check is in flight neither crashes nor applies',
+      () async {
+        final s = NavStack<K>.of(const A());
+        addTearDown(s.dispose);
+        final started = Completer<void>();
+        final finish = Completer<List<K>?>();
+        final gate = AsyncRedirect<K>(
+          check: (proposed) {
+            started.complete();
+            return finish.future;
+          },
+        )..attach(s);
 
-      s.push(const C());
-      await started.future;
-      gate.dispose(); // in flight!
-      finish.complete(const [Login()]);
-      await pumpEventQueue();
-      // The late decision was dropped; no disposed-notifier crash.
-      expect(s.keys.map((k) => k.runtimeType), [A, C]);
-    });
+        s.push(const C());
+        await started.future;
+        gate.dispose(); // in flight!
+        finish.complete(const [Login()]);
+        await pumpEventQueue();
+        // The late decision was dropped; no disposed-notifier crash.
+        expect(s.keys.map((k) => k.runtimeType), [A, C]);
+      },
+    );
 
     test('the decision cache is bounded and keyed by value equality', () async {
       var checks = 0;
@@ -240,25 +249,28 @@ void main() {
       expect(checks, 4);
     });
 
-    test('invalidate drops decisions so gates re-run after login/logout', () async {
-      var loggedIn = false;
-      final s = NavStack<K>.of(const A());
-      addTearDown(s.dispose);
-      final gate = AsyncRedirect<K>(
-        check: (proposed) async =>
-            proposed.any((k) => k is C) && !loggedIn ? const [Login()] : null,
-      )..attach(s);
-      addTearDown(gate.dispose);
+    test(
+      'invalidate drops decisions so gates re-run after login/logout',
+      () async {
+        var loggedIn = false;
+        final s = NavStack<K>.of(const A());
+        addTearDown(s.dispose);
+        final gate = AsyncRedirect<K>(
+          check: (proposed) async =>
+              proposed.any((k) => k is C) && !loggedIn ? const [Login()] : null,
+        )..attach(s);
+        addTearDown(gate.dispose);
 
-      s.push(const C());
-      await pumpEventQueue();
-      expect(s.current, isA<Login>());
+        s.push(const C());
+        await pumpEventQueue();
+        expect(s.current, isA<Login>());
 
-      loggedIn = true;
-      gate.invalidate();
-      s.replaceAll(const [A(), C()]);
-      await pumpEventQueue();
-      expect(s.keys.map((k) => k.runtimeType), [A, C]);
-    });
+        loggedIn = true;
+        gate.invalidate();
+        s.replaceAll(const [A(), C()]);
+        await pumpEventQueue();
+        expect(s.keys.map((k) => k.runtimeType), [A, C]);
+      },
+    );
   });
 }
