@@ -1,0 +1,70 @@
+# Core concepts
+
+The whole library is a few ideas. Learn these and you know back_stack.
+
+## The stack is a list you own
+
+`NavStack<K>` holds a `List` of typed destinations. You mutate it; the UI
+follows. It's a `ChangeNotifier`, so `stack.keys` is plain, observable data.
+
+```dart
+stack.push(const Product(42));       // add on top
+stack.pop();                         // remove the top
+stack.replaceTop(const Product(7));  // swap the top, no back step
+stack.replaceAll([const Home()]);    // reset the whole flow
+stack.popUntil((k) => k is Home);    // unwind to the first match
+stack.pushAll([const Category(1), const Product(9)]); // several at once
+stack.popToRoot();                   // home button
+stack.removeWhere((k) => k is Toast); // drop matching entries
+stack.edit((list) => list.removeAt(1)); // escape hatch: it's just a List
+```
+
+Every survivor of a change keeps its `State` — entries are reconciled by key
+identity, so only genuinely new destinations rebuild and only removed ones are
+disposed.
+
+## Destinations are typed
+
+A destination is a `NavKey` subclass. Its constructor arguments are its
+navigation arguments — real, compiler-checked fields, not an `Object? extra` or
+a string path parameter.
+
+```dart
+class Product extends AppKey { const Product(this.id); final int id; }
+stack.push(const Product(42));       // id is an int, checked
+```
+
+Mix in `EquatableNavKey` for value equality so a URL re-decode reuses the live
+screen instead of rebuilding it.
+
+## NavDisplay renders the list
+
+`NavDisplay<K>` watches the stack and renders it through Flutter's Pages API.
+System back, predictive back, and the hardware button all sync into the list
+automatically. Pages are memoized by entry id, so one push rebuilds exactly one
+screen.
+
+## Two ways to map a destination to a screen
+
+- An exhaustive `switch (key)` — the compiler flags a destination you forgot.
+- A `NavEntries<K>` map (`..on<Home>(...)`) — registers destinations across
+  feature files; hand `entries.call` to `NavDisplay(builder:)`.
+
+## Results
+
+Await a value from a pushed screen — no result channel to wire up:
+
+```dart
+final color = await BackStack.of<AppKey>(context)
+    .pushForResult<Color>(const ColorPicker());
+// on the picker: BackStack.of<AppKey>(context).pop(pickedColor);
+```
+
+It completes with the popped value, or `null` if the screen leaves any other
+way. It never hangs.
+
+## Everything else reads and writes this one list
+
+Deep links, web URL sync, auth gating, tabs, adaptive layouts — they're all just
+things that read from or write to the same list. The list is always the single
+source of truth.

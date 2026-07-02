@@ -1,0 +1,19 @@
+# NOTE: a .pubignore replaces the sibling .gitignore for pub, so this must also
+# repeat the build/tooling excludes — otherwise they get re-included in the
+# published archive.
+
+# Repo/site tooling — not part of the library or its runnable example.
+site/
+.github/
+
+# Build & tooling artifacts (mirrors .gitignore, plus nested example builds).
+.dart_tool/
+/build/
+build/
+/coverage/
+pubspec.lock
+.flutter-plugins-dependencies
+example/build/
+example/web/
+**/doc/api/
+.DS_Store

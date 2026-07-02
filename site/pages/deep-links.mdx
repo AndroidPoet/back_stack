@@ -1,0 +1,89 @@
+# Deep links
+
+The whole deep-link setup is one widget and one function. `BackStackApp` bundles
+the `MaterialApp.router` + delegate + parser wiring; you write `onLink`, mapping
+an incoming `Uri` to the stack it should show.
+
+```dart
+void main() => runApp(
+  BackStackApp<AppKey>(
+    stack: NavStack.of(const Home()),
+    builder: entries.call,
+    onLink: (uri) => switch (uri.pathSegments) {
+      ['product', final id] => [const Home(), Product(int.parse(id))],
+      _                     => [const Home()],
+    },
+  ),
+);
+```
+
+You decide what a link materializes — return `[Home(), Product(42)]` so Back
+still goes Home, or just `[Product(42)]` to replace. That fixes the classic
+"a deep link nukes my whole stack" problem.
+
+`onLink` may parse optimistically: if it throws or returns empty,
+`onLinkFallback` (or `/`) is shown instead of crashing. There's no `errorBuilder`
+to write — in-app navigation is typed and can't reach an unknown screen.
+
+## Web address bar
+
+Pass `toLink` to project the stack back onto the URL:
+
+```dart
+BackStackApp<AppKey>(
+  // ...
+  toLink: (stack) => switch (stack.last) {
+    Product(:final id) => Uri(path: '/product/$id'),
+    _                  => Uri(path: '/'),
+  },
+);
+```
+
+## Async links from native
+
+The platform hands back_stack the launch URL and the standard app links it
+resolves itself. Links that arrive **while the app runs** — a custom scheme, a
+Firebase Dynamic Link, a warm `app_links` link — come from a native plugin as a
+`Stream<Uri>`. Pass it as `linkStream` and every emission runs through the same
+`onLink`.
+
+```dart
+final appLinks = AppLinks(); // create EARLY — see the ordering note below
+
+BackStackApp<AppKey>(
+  // ...
+  initialLink: appLinks.getInitialLink(), // cold-start link (any plugin version)
+  linkStream: appLinks.uriLinkStream,     // warm links while running
+);
+```
+
+import { Callout } from 'nextra/components'
+
+<Callout type="warning">
+**Cold start: order, not luck.** `app_links`' `uriLinkStream` replays the launch
+URI to its first listener *only if* the `AppLinks()` singleton exists when the OS
+delivers it. Create it early — a top-level `final` or in `main()` — not lazily in
+a widget, or the first link is gone. To not depend on that at all, also pass
+`initialLink: appLinks.getInitialLink()`; back_stack awaits it and applies the
+launch link through the same `onLink`.
+</Callout>
+
+## Typed URL sugar
+
+`NavPath` makes `onLink`/`toLink` terser without a route table — build absolute,
+encoded URLs and read path/query params without `int.parse` throwing:
+
+```dart
+// build (toLink):
+NavPath.build(['product', id]);                 // /product/42
+NavPath.build(const ['search'], query: {'q': q}); // /search?q=shoes
+
+// read (onLink):
+final p = NavPath(uri);
+p.segInt(1);        // path segment as int, or null
+p.str('q');         // query param, or null
+p.integer('page');  // query param as int, or null
+```
+
+Dart 3 list patterns already handle path *matching* (`['product', final id] => …`),
+so `NavPath` fills in the parts they don't.

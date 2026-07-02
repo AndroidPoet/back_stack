@@ -1,0 +1,79 @@
+name: Pages
+
+# Builds the docs site (Nextra static export) at the root and the Flutter web
+# demo under /demo, then publishes both to GitHub Pages.
+#
+# One-time setup by the repo owner: Settings → Pages → Source: "GitHub Actions".
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'example/**'
+      - 'lib/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Docs site (Nextra → static HTML) ---
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Build docs site
+        working-directory: site
+        env:
+          PAGES_BASE_PATH: /back_stack
+        run: |
+          npm ci
+          npm run build
+
+      # --- Flutter web demo ---
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Build web demo
+        working-directory: example
+        run: |
+          flutter pub get
+          flutter build web --release --base-href /back_stack/demo/
+
+      # --- Assemble: docs at root, demo under /demo ---
+      - name: Assemble site
+        run: |
+          rm -rf _site
+          mkdir -p _site
+          cp -r site/out/. _site/
+          mkdir -p _site/demo
+          cp -r example/build/web/. _site/demo/
+          touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,73 @@
+# Migrating from go_router
+
+go_router gives you a **route table** the framework walks to decide which pages
+to show. back_stack gives you **the stack itself** — a `List` of typed
+destinations you push and pop. Migrating is mostly deleting the route tree and
+moving navigation from "describe a path" to "change a list."
+
+> The shift: in go_router the path is the source of truth and the stack is
+> derived. In back_stack the **stack is the source of truth** and the URL is a
+> projection of it. That's what removes the `go` vs `push` question.
+
+## At a glance
+
+| go_router | back_stack |
+| --- | --- |
+| `GoRoute(path: '/product/:id', builder: …)` | a typed `class Product extends AppKey { final int id; }` + `..on<Product>(…)` |
+| `context.go('/product/42')` | `stack.replaceAll([Home(), Product(42)])` |
+| `context.push('/product/42')` | `stack.push(Product(42))` |
+| `context.pop()` | `stack.pop()` |
+| `context.pushReplacement(…)` | `stack.replaceTop(…)` |
+| `state.pathParameters['id']` / `state.extra` | `key.id` — a real, typed field |
+| `redirect:` (can loop) | `redirect` (pure, runs once) + `guard` |
+| async `redirect` | `AsyncRedirect` |
+| `refreshListenable:` | `stack.refreshListenable` |
+| `ShellRoute` / `StatefulShellRoute` | `MultiNavStack` |
+| `errorBuilder:` / "no route found" | no such class — only the deep-link boundary is untyped (`onLinkFallback`) |
+| `GoRouter.of(context)` | `BackStack.of<AppKey>(context)` |
+| `routerConfig` + `MaterialApp.router` | `BackStackApp(onLink: …)` |
+
+## Routes → typed destinations
+
+```dart
+// go_router
+GoRoute(
+  path: '/product/:id',
+  builder: (c, s) => ProductScreen(id: int.parse(s.pathParameters['id']!)),
+);
+
+// back_stack
+class Product extends AppKey { const Product(this.id); final int id; }
+final entries = NavEntries<AppKey>()
+  ..on<Product>((context, key) => ProductScreen(id: key.id)); // key.id is an int
+```
+
+`int.parse(...!)` and `state.extra as T` casts are gone — the destination *is*
+the typed argument bundle.
+
+## Navigation
+
+| Intent | go_router | back_stack |
+| --- | --- | --- |
+| Reset the stack | `context.go('/home')` | `stack.replaceAll([const Home()])` |
+| Push | `context.push('/product/42')` | `stack.push(const Product(42))` |
+| Pop | `context.pop()` | `stack.pop()` |
+| Reuse an open screen | manual | `stack.pushOrMoveToTop(const Product(42))` |
+
+## What you can delete
+
+- The route-tree list and every `path:` string.
+- `int.parse(state.pathParameters[...]!)` and `state.extra as T` casts.
+- `errorBuilder` / "unknown route" screens for in-app navigation.
+- `redirectLimit` and redirect-loop worries.
+- `context.go` vs `context.push` decisions.
+
+## Gradual migration
+
+`NavDisplay` is a normal widget, so you can host a back_stack-driven subtree
+inside an existing go_router route (give it a distinct key type) and migrate
+feature by feature — or flip the root to `BackStackApp` and port screens into
+`NavEntries` one `..on<T>()` at a time.
+
+The full guide, with before/after for every section, is in the repo:
+[`doc/MIGRATING_FROM_GO_ROUTER.md`](https://github.com/AndroidPoet/back_stack/blob/main/doc/MIGRATING_FROM_GO_ROUTER.md).

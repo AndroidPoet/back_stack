@@ -1,0 +1,21 @@
+{
+  "index": "Introduction",
+  "getting-started": "Getting started",
+  "core-concepts": "Core concepts",
+  "deep-links": "Deep links",
+  "auth-gating": "Auth gating",
+  "adaptive-and-tabs": "Adaptive & tabs",
+  "transitions": "Transitions",
+  "analytics": "Analytics",
+  "migrating-from-go-router": "Migrating from go_router",
+  "demo": {
+    "title": "Live demo ↗",
+    "href": "https://androidpoet.github.io/back_stack/demo/",
+    "newWindow": true
+  },
+  "pub": {
+    "title": "pub.dev ↗",
+    "href": "https://pub.dev/packages/back_stack",
+    "newWindow": true
+  }
+}

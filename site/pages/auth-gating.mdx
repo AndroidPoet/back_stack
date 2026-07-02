@@ -1,0 +1,66 @@
+# Auth gating
+
+back_stack splits gating into loop-proof pieces. No `redirectLimit`, no
+ping-ponging.
+
+## redirect — a pure transform
+
+`redirect` maps the proposed stack to the one to actually show, applied **once**
+per change:
+
+```dart
+stack.redirect = (proposed) {
+  final guarded = proposed.any((k) => k is Account);
+  return (guarded && !isLoggedIn) ? [const Login()] : proposed;
+};
+```
+
+Because it's a pure function applied once, it can't loop the way a URL-redirect
+engine can. Compose several independent gates with `combineRedirects([...])`, and
+veto a specific transition (rather than rewrite it) with `guard`.
+
+## refreshListenable — react to auth changes
+
+Point it at your auth `Listenable`; when sign-in state changes, the current
+stack is re-evaluated and bounced if `redirect` now says so:
+
+```dart
+stack.refreshListenable = authNotifier;
+```
+
+## Async gating
+
+`redirect` is synchronous by design — that's what makes it loop-proof. When a
+gate needs to *await* (a permission call, a session refresh, a "does this
+deep-linked doc exist" check), use `AsyncRedirect`:
+
+```dart
+final gate = AsyncRedirect<AppKey>(
+  check: (proposed) async {
+    if (proposed.any((k) => k is Admin) && !await session.hasAdminAccess()) {
+      return [const Login()]; // deny → bounce
+    }
+    return null;              // allow as proposed
+  },
+);
+stack
+  ..redirect = gate.call
+  ..refreshListenable = gate;
+```
+
+While a check runs, the stack stays put and `gate.resolving` (a
+`ValueListenable<bool>`) flips true — drive a loading overlay from it:
+
+```dart
+Stack(children: [
+  NavDisplay(stack: stack, builder: entries.call),
+  ValueListenableBuilder(
+    valueListenable: gate.resolving,
+    builder: (_, busy, __) => busy ? const LoadingScrim() : const SizedBox(),
+  ),
+]);
+```
+
+The decision is cached per destination, so a check runs once — not on every
+rebuild. Call `gate.invalidate()` after login/logout to force a re-check. It's
+built on the sync primitives, so the core stays loop-proof.

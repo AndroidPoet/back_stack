@@ -1,0 +1,53 @@
+# Adaptive layouts & tabs
+
+## List-detail from one stack
+
+`NavListDetail` renders a single stack as a two-pane list-detail on a wide
+window and a push/pop stack on a phone — no second navigation model:
+
+```dart
+NavListDetail<AppKey>(
+  stack: stack,
+  isDetail: (key) => key is Message,
+  list: (context, key) => const Inbox(),
+  detail: (context, key) => MessageView(id: (key as Message).id),
+  placeholder: (context) => const Text('Pick a message'),
+);
+```
+
+Each pane keeps its `State` across the breakpoint — every entry gets a stable
+`GlobalKey`, so screens are reparented, not rebuilt. For a supporting pane, three
+columns, or your own layout, drop to the general `NavSceneHost` + `NavSceneStrategy`
+engine over the same one stack.
+
+## Bottom nav with per-tab history
+
+`MultiNavStack` keeps one back stack per tab, persistent across switches:
+
+```dart
+final host = MultiNavStack<TabKey>([
+  NavStack.of(const Feed()),
+  NavStack.of(const Search()),
+  NavStack.of(const Profile()),
+]);
+
+Scaffold(
+  body: MultiNavDisplay<TabKey>(host: host, builder: screenFor),
+  bottomNavigationBar: ListenableBuilder(
+    listenable: host,
+    builder: (context, _) => NavigationBar(
+      selectedIndex: host.index,
+      onDestinationSelected: host.select, // re-tap active tab → pop to root
+      destinations: const [/* ... */],
+    ),
+  ),
+);
+```
+
+Push deep in one tab, switch away and back — the history is intact. System back
+pops the active tab, then falls back to the first. A deep screen switches tabs
+with `MultiBackStack.of<TabKey>(context).select(i)`.
+
+For URL sync, deep links and browser back on a tabbed app, drive it from the
+Router with `MultiNavStackRouterDelegate` + a `MultiNavStackCodec`. To survive
+process death, wrap it in `RestorableMultiNavStack`.

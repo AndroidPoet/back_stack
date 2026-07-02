@@ -1,0 +1,34 @@
+# Analytics
+
+Because the stack is plain observable data, tracking navigation doesn't mean
+reverse-engineering `Route` names from a `NavigatorObserver`. `NavStackObserver`
+reports events in *your* key type.
+
+```dart
+final observer = NavStackObserver<AppKey>(
+  stack,
+  onScreen: (key) => analytics.logScreen(key.runtimeType.toString()), // screen_view
+  onPush: (key) => debugPrint('→ $key'),
+  onPop:  (key) => debugPrint('← $key'),
+);
+
+// when you're done (it doesn't own the stack):
+observer.dispose();
+```
+
+- **`onScreen`** fires whenever the visible top changes — your `screen_view`
+  signal — and once on construction for the initial screen (pass
+  `emitInitial: false` to skip that).
+- **`onPush` / `onPop`** fire per destination that enters or leaves. A single
+  `replaceAll` reports each added and removed screen exactly once, and reconciled
+  survivors (the same key kept across a change) don't re-fire.
+
+It works by diffing entry identities, so the events reflect what actually changed
+on the stack — not every rebuild.
+
+## Debugging live
+
+For eyeballing the stack while you build, drop in `BackStackInspector<K>()`
+anywhere below the display. It lists every entry bottom-to-top, marks the current
+one, and updates on every push/pop — no DevTools setup, because the stack is just
+data.

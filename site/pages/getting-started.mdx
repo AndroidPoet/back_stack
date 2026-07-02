@@ -1,0 +1,69 @@
+# Getting started
+
+## Install
+
+```yaml
+dependencies:
+  back_stack: ^0.3.0
+```
+
+## Your first stack
+
+Three pieces: typed destinations, a builder that maps each to a screen, and the
+stack itself.
+
+```dart
+import 'package:back_stack/back_stack.dart';
+import 'package:flutter/material.dart';
+
+// Destinations — plain Dart types. Arguments are real fields.
+abstract class AppKey extends NavKey { const AppKey(); }
+class Home    extends AppKey { const Home(); }
+class Product extends AppKey { const Product(this.id); final int id; }
+
+void main() => runApp(const MyApp());
+
+class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final stack = NavStack<AppKey>.of(const Home());
+
+  final entries = NavEntries<AppKey>()
+    ..on<Home>((context, key) => const HomeScreen())
+    ..on<Product>((context, key) => ProductScreen(id: key.id));
+
+  @override
+  void dispose() {
+    stack.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    home: NavDisplay<AppKey>(stack: stack, builder: entries.call),
+  );
+}
+```
+
+## Navigate from a screen
+
+`NavDisplay` provides the stack to everything below it. Reach it with
+`BackStack.of<AppKey>(context)` — pass the key type so the lookup finds *your*
+stack:
+
+```dart
+onTap: () => BackStack.of<AppKey>(context).push(const Product(42)),
+```
+
+`of` doesn't rebuild on change (right for event handlers). Pass `listen: true`
+when a widget should rebuild when the stack changes.
+
+## Where to next
+
+- [Core concepts](/core-concepts) — the model end to end.
+- [Deep links](/deep-links) — map URLs onto the stack in one function.
+- [Auth gating](/auth-gating) — redirects and async guards, loop-proof.
