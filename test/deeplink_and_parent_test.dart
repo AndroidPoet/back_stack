@@ -133,6 +133,45 @@ void main() {
   );
 
   testWidgets(
+    'BackStackApp: initialLink applies the cold-start link through onLink',
+    (tester) async {
+      // Stand in for AppLinks().getInitialLink() — the launch URI as a Future.
+      final initial = Completer<Uri?>();
+      final stack = NavStack<AppKey>.of(const Home());
+      addTearDown(stack.dispose);
+
+      await tester.pumpWidget(
+        BackStackApp<AppKey>(
+          stack: stack,
+          restorationScopeId: null,
+          initialLink: initial.future,
+          builder: (context, key) => switch (key) {
+            Home() => const Text('home'),
+            Product(:final id) => Text('product $id'),
+            _ => const Text('other'),
+          },
+          onLink: (uri) {
+            final s = uri.pathSegments;
+            if (s.length == 2 && s[0] == 'products') {
+              return [const Home(), Product(int.parse(s[1]))];
+            }
+            return [const Home()];
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('home'), findsOneWidget); // before the future resolves
+
+      // The cold-start link resolves → mapped through onLink onto the stack.
+      initial.complete(Uri.parse('myapp://app/products/9'));
+      await tester.pumpAndSettle();
+      expect(find.text('product 9'), findsOneWidget);
+      expect(stack.keys.last, isA<Product>().having((p) => p.id, 'id', 9));
+    },
+    experimentalLeakTesting: LeakTesting.settings.withIgnoredAll(),
+  );
+
+  testWidgets(
     'BackStack.parentOf reaches the parent stack from a nested child',
     (tester) async {
       final parent = NavStack<AppKey>.of(const ParentRoot());

@@ -1,3 +1,13 @@
+## Unreleased
+
+- **`BackStackApp.initialLink`** — hand it `AppLinks().getInitialLink()` and
+  back_stack awaits the cold-start link and applies it through the same `onLink`.
+  This is the version-independent way to survive a custom-scheme cold start
+  (rather than relying on `uriLinkStream` replaying the launch URI). Safe to use
+  alongside `linkStream`; re-applying the same link is a no-op.
+- Docs: the deep-link sections now spell out the `app_links` cold-start ordering
+  rule (create `AppLinks()` early or the launch link is lost).
+
 ## 0.3.0
 
 A feature drop aimed at everyday UX — all within the same few-concepts,

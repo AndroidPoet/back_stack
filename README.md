@@ -137,6 +137,8 @@ BackStackApp<AppKey>(
 ```
 
 > **Cold start: order, not luck.** `app_links`' `uriLinkStream` replays the launch URI (the one that cold-started the app) to its first listener — *but only if the `AppLinks()` singleton already exists when the OS delivers it*. Create it early (a top-level `final`, or in `main()` before `runApp`); create it late, deep in a widget, and the first link is already gone. `BackStackApp` subscribes to `linkStream` in `initState` (first frame), so passing `appLinks.uriLinkStream` is enough — as long as the plugin itself was constructed early.
+>
+> To not depend on that replay behaviour at all, also pass `initialLink: appLinks.getInitialLink()` — back_stack awaits the launch link and applies it through the same `onLink`. That's the version-independent way to survive a custom-scheme cold start; safe to use with `linkStream` (re-applying the same link is a no-op).
 
 back_stack stays dependency-free: it owns the `Uri` → stack mapping and the subscription lifecycle; you bring the `Uri`s from whatever plugin you prefer. Driving your own router instead? Call `delegate.handleLink(uri)` (on `NavStackRouterDelegate` or `MultiNavStackRouterDelegate`) — the imperative sibling of the platform's `setNewRoutePath`, with the same never-throws hardening.
 

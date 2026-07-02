@@ -48,7 +48,8 @@ import 'package:flutter/material.dart';
 ///   stack: NavStack.of(const Home()),
 ///   builder: entries.call,
 ///   onLink: (uri) => /* map Uri → stack */,
-///   linkStream: appLinks.uriLinkStream, // runtime links → same onLink
+///   initialLink: appLinks.getInitialLink(), // cold-start link (any plugin version)
+///   linkStream: appLinks.uriLinkStream,     // warm links while running
 /// );
 /// ```
 ///
@@ -56,10 +57,13 @@ import 'package:flutter/material.dart';
 /// launch URI (the one that cold-started the app) to its first listener — but
 /// only if the `AppLinks()` singleton already exists when the OS delivers it.
 /// Create it early (a top-level `final`, or in `main()` before `runApp`); create
-/// it late, deep in a widget's build, and the first link is already gone. Passing
-/// `appLinks.uriLinkStream` here is enough *because* [linkStream] is subscribed in
-/// this widget's `initState`, which runs on the first frame — provided the plugin
-/// itself was constructed early.
+/// it late, deep in a widget's build, and the first link is already gone.
+///
+/// Don't want to depend on that replay behaviour at all? Pass [initialLink] the
+/// plugin's `getInitialLink()` future — back_stack awaits it and applies the
+/// launch link through the same [onLink], which is the version-independent way to
+/// survive a custom-scheme cold start. Use both together: [initialLink] for the
+/// launch link, [linkStream] for warm ones; re-applying the same link is a no-op.
 ///
 /// back_stack stays dependency-free: it owns the `Uri` → stack mapping and the
 /// subscription lifecycle; you bring the `Uri`s from whatever plugin you prefer.
@@ -77,6 +81,7 @@ class BackStackApp<K extends NavKey> extends StatefulWidget {
     this.toLink,
     this.onLinkFallback,
     this.linkStream,
+    this.initialLink,
     this.pageBuilder,
     this.observers = const [],
     this.decorators = const [],
@@ -123,6 +128,15 @@ class BackStackApp<K extends NavKey> extends StatefulWidget {
   /// Construct the plugin (e.g. `AppLinks()`) **early** — a top-level singleton or
   /// in `main()` — so the cold-start URI isn't lost. See the class docs.
   final Stream<Uri>? linkStream;
+
+  /// The one-shot link that **cold-started** the app, if any — hand it
+  /// `AppLinks().getInitialLink()`. back_stack awaits it once on startup and, if
+  /// non-null, runs it through [onLink] (same fallback safety), so the launch deep
+  /// link lands even when [linkStream] doesn't replay it (the version-independent
+  /// way to survive a custom-scheme cold start). Safe to use alongside
+  /// [linkStream]: re-applying the same link is a no-op. Omit it if the platform
+  /// already delivers your launch link (standard app links / web).
+  final Future<Uri?>? initialLink;
 
   /// Optional custom page/transition. See [NavDisplay.pageBuilder].
   final NavPageBuilder<K>? pageBuilder;
@@ -192,6 +206,16 @@ class _BackStackAppState<K extends NavKey> extends State<BackStackApp<K>> {
     super.initState();
     // Feed runtime links from the app's plugin through the same onLink mapping.
     _linkSub = widget.linkStream?.listen(_delegate.handleLink);
+    // Apply the cold-start link (if any) once it resolves — through the same
+    // mapping. Guarded on `mounted` in case we're disposed before it arrives.
+    final initial = widget.initialLink;
+    if (initial != null) {
+      unawaited(
+        initial.then((uri) {
+          if (uri != null && mounted) _delegate.handleLink(uri);
+        }),
+      );
+    }
   }
 
   @override
