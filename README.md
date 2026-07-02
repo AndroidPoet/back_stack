@@ -83,7 +83,7 @@ Pass the key type — `BackStack.of<AppKey>` — so the lookup finds *your* stac
 
 ## Features
 
-- **Own the stack** — `push` / `pop` / `replaceTop` / `replaceAll` / `popUntil` / `edit`. It's just a `List`.
+- **Own the stack** — `push` / `pop` / `replaceTop` / `replaceAll` / `popUntil` / `pushAll` / `popToRoot` / `removeWhere` / `edit`. It's just a `List`.
 - **A modular map, or one `switch`** — `NavEntries` (`..on<Home>(...)`) registers destinations across feature files; prefer an exhaustive `switch` when you want the compiler to flag a destination you forgot.
 - **Cross-cutting decorators** — `NavEntryDecorator` wraps every screen (DI scope, providers, tracing) and calls back when an entry leaves the stack, so you can tear down a Bloc/controller scoped to a destination.
 - **Results** — `await stack.pushForResult<Color>(picker)`; complete it with `pop(value)`. Never hangs.
@@ -91,6 +91,8 @@ Pass the key type — `BackStack.of<AppKey>` — so the lookup finds *your* stac
 - **Auth gating** — `redirect` (pure transform) and `guard` (veto), applied once per change. Loop-proof. Split independent gates with `combineRedirects([...])`, or gate on an **async** check (permission call, session refresh) with `AsyncRedirect` — still loop-proof.
 - **No duplicate screens** — `stack.pushOrMoveToTop(key)` reuses an open copy instead of stacking another; `moveToTop(test)` is the `clearTop` gesture.
 - **Debug the stack** — drop in `BackStackInspector<K>()` to watch entries push/pop live (no DevTools setup — the stack is just data).
+- **Typed analytics** — `NavStackObserver` reports `onScreen` / `onPush` / `onPop` with *your* keys, not framework `Route`s — a `screen_view` seam with no route-name reverse-engineering.
+- **Deep-link sugar** — `NavPath` builds and reads URLs (`NavPath.build(['products', id])`, typed query params) so `onLink`/`toLink` aren't string surgery.
 - **Adaptive layout** — `NavListDetail` turns one stack into list-detail / panes on wide screens, a stack on phones.
 - **Per-tab history** — `MultiNavStack` gives each bottom-nav tab its own persistent back stack.
 - **Shared elements** — `Hero` transitions just work, including inside nested displays.

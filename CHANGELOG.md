@@ -1,5 +1,20 @@
 ## Unreleased
 
+- **`NavStackObserver<K>` — typed navigation events.** A stack-level observer that
+  fires with *your* `NavKey`s (not framework `Route`s): `onScreen` (the visible top
+  changed — your `screen_view` signal), `onPush`, `onPop`. Built by diffing entry
+  identities, so a `replaceAll` reports each added/removed screen once and reconciled
+  survivors don't re-fire. The clean analytics/logging seam without reverse-engineering
+  route names.
+- **`NavPath` — typed deep-link sugar.** Terser `onLink`/`toLink` without a route
+  table: `NavPath.build(['products', id], query: {...})` builds an absolute, encoded
+  URL, and `NavPath(uri)` reads path segments (`seg`/`segInt`) and query params
+  (`str`/`integer`/`number`/`boolean`) with no `int.parse` throws to guard. Pairs with
+  Dart 3 list patterns, which already handle path matching.
+- **Ergonomic stack ops** on `NavStack`: `pushAll` (several destinations in one
+  change), `popToRoot` (unwind to the first entry, keeping its `State`), and
+  `removeWhere` (drop matching entries, never emptying the stack). Sugar over the
+  list you already own.
 - **`BackStackApp.initialLink`** — hand it `AppLinks().getInitialLink()` and
   back_stack awaits the cold-start link and applies it through the same `onLink`.
   This is the version-independent way to survive a custom-scheme cold start

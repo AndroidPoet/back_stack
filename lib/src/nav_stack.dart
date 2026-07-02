@@ -240,6 +240,38 @@ class NavStack<K extends NavKey> extends ChangeNotifier {
     }
   }
 
+  /// Push several destinations at once, in order, as a single change — one
+  /// rebuild and one notification instead of N. Handy for materializing a whole
+  /// flow (`stack.pushAll([Category(id), Product(pid)])`). A no-op if [keys] is
+  /// empty.
+  void pushAll(Iterable<K> keys) {
+    final added = [for (final k in keys) NavEntry<K>(k, _nextId++)];
+    if (added.isEmpty) return;
+    _commit([..._entries, ...added]);
+  }
+
+  /// Pop everything above the root, landing back on the first entry. Returns
+  /// whether anything was popped (false if already at the root). The root keeps
+  /// its [State] — this is the "home button" / re-tap-the-tab gesture.
+  bool popToRoot() {
+    if (_entries.length <= 1) return false;
+    return _commit(_entries.sublist(0, 1));
+  }
+
+  /// Remove every entry whose key matches [test], as one change. Returns whether
+  /// anything was removed. Refuses to empty the stack: if *every* entry matches,
+  /// nothing is removed and it returns false (the stack always keeps at least one
+  /// destination). Matching entries that survive elsewhere keep their [State].
+  bool removeWhere(bool Function(K key) test) {
+    final kept = [
+      for (final e in _entries)
+        if (!test(e.key)) e,
+    ];
+    if (kept.length == _entries.length) return false; // nothing matched
+    if (kept.isEmpty) return false; // would empty the stack — refuse
+    return _commit(kept);
+  }
+
   /// Escape hatch: mutate the stack as a plain list. Whatever the list looks
   /// like after [edit] runs is the new stack. The whole point of owning the
   /// back stack — anything you can do to a `List`, you can do to navigation.

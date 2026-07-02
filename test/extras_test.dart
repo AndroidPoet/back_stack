@@ -50,6 +50,48 @@ void main() {
     });
   });
 
+  group('ergonomic stack ops', () {
+    test('pushAll adds several destinations in one change', () {
+      final s = NavStack<K>.of(const A());
+      addTearDown(s.dispose);
+      var notifications = 0;
+      s.addListener(() => notifications++);
+
+      s.pushAll(const [B(), C()]);
+      expect(s.keys.map((k) => k.runtimeType), [A, B, C]);
+      expect(notifications, 1, reason: 'one commit, not one per push');
+
+      s.pushAll(const []); // no-op
+      expect(notifications, 1);
+    });
+
+    test('popToRoot unwinds to the first entry', () {
+      final s = NavStack<K>.of(const A())
+        ..push(const B())
+        ..push(const C());
+      addTearDown(s.dispose);
+
+      expect(s.popToRoot(), isTrue);
+      expect(s.keys.map((k) => k.runtimeType), [A]);
+      expect(s.popToRoot(), isFalse); // already at root
+    });
+
+    test('removeWhere drops matching entries but never empties the stack', () {
+      final s = NavStack<K>.of(const A())
+        ..push(const B())
+        ..push(const C())
+        ..push(const B());
+      addTearDown(s.dispose);
+
+      expect(s.removeWhere((k) => k is B), isTrue);
+      expect(s.keys.map((k) => k.runtimeType), [A, C]);
+
+      expect(s.removeWhere((k) => k is A || k is C), isFalse,
+          reason: 'removing everything is refused');
+      expect(s.keys.map((k) => k.runtimeType), [A, C]); // unchanged
+    });
+  });
+
   group('combineRedirects', () {
     test('runs rules in order; stop short-circuits', () {
       final redirect = combineRedirects<K>([
